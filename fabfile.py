@@ -5,7 +5,6 @@ Fabric's own fabfile.
 from __future__ import with_statement
 
 import os
-import nose
 from fabric.api import task, local, lcd
 
 
@@ -16,6 +15,7 @@ def test(args=None):
 
     Specify string argument ``args`` for additional args to ``nosetests``.
     """
+    import nose
     # Default to explicitly targeting the 'tests' folder, but only if nothing
     # is being overridden.
     tests = "" if args else " tests"
