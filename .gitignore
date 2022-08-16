@@ -30,3 +30,4 @@ sites/*/_build
 /Makefile
 /venvs/
 /.eggs/
+*.egg-info/
