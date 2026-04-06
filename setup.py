@@ -37,7 +37,7 @@ setup(
     url='https://github.com/torico-tokyo/fabricity',
     packages=find_packages(),
     test_suite='nose.collector',
-    tests_require=['nose<2.0', 'fudge<1.0', 'jinja2<3.0'],
+    tests_require=['nose<2.0', 'fudge<1.0', 'jinja2<4.0'],
     install_requires=install_requires,
     entry_points={
         'console_scripts': [
