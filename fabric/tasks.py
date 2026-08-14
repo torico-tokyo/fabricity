@@ -28,12 +28,22 @@ def get_task_details(task):
     args_without_defaults = argspec.args[:len(argspec.args) - num_default_args]
     args_with_defaults = argspec.args[-1 * num_default_args:]
 
+    # キーワード専用引数 (def task(*, env, force=False)) も表示する。
+    # getargspec はこの形の関数に ValueError を投げていたので今まで出せなかったが、
+    # fab は task:env=stg の形で値を渡せるので、引数一覧に出す必要がある
+    kwonly_defaults = argspec.kwonlydefaults or {}
+    kwonly_args = [
+        '%s=%r' % (arg, kwonly_defaults[arg])
+        if arg in kwonly_defaults else arg
+        for arg in argspec.kwonlyargs
+    ]
+
     details.append('Arguments: %s' % (
         ', '.join(
             args_without_defaults + [
                 '%s=%r' % (arg, default)
                 for arg, default in zip(args_with_defaults, default_args)
-            ])
+            ] + kwonly_args)
     ))
 
     return '\n'.join(details)
