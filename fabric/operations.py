@@ -42,7 +42,7 @@ def _shell_escape(string):
         '\\\\"'
     """
     for char in ('"', '$', '`'):
-        string = string.replace(char, '\%s' % char)
+        string = string.replace(char, '\\%s' % char)
     return string
 
 
@@ -135,7 +135,7 @@ def require(*keys, **kwargs):
 
 
 def prompt(text, key=None, default='', validate=None):
-    """
+    r"""
     Prompt user with ``text`` and return the input (like ``raw_input``).
 
     A single space character will be appended for convenience, but nothing

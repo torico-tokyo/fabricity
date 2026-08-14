@@ -13,33 +13,15 @@ from fabric.job_queue import JobQueue
 from fabric.task_utils import crawl, merge, parse_kwargs
 from fabric.exceptions import NetworkError
 
-if sys.version_info[:2] == (2, 5):
-    # Python 2.5 inspect.getargspec returns a tuple
-    # instead of ArgSpec namedtuple.
-    class ArgSpec(object):
-        def __init__(self, args, varargs, keywords, defaults):
-            self.args = args
-            self.varargs = varargs
-            self.keywords = keywords
-            self.defaults = defaults
-            self._tuple = (args, varargs, keywords, defaults)
-
-        def __getitem__(self, idx):
-            return self._tuple[idx]
-
-    def patched_get_argspec(func):
-        return ArgSpec(*inspect._getargspec(func))
-
-    inspect._getargspec = inspect.getargspec
-    inspect.getargspec = patched_get_argspec
-
-
 def get_task_details(task):
     details = [
         textwrap.dedent(task.__doc__)
         if task.__doc__
         else 'No docstring provided']
-    argspec = inspect.getargspec(task)
+    # inspect.getargspec() は Python 3.11 で削除された。
+    # getfullargspec() は args / defaults の意味が同じで、
+    # ここで使っているのはその 2 つだけ
+    argspec = inspect.getfullargspec(task)
 
     default_args = [] if not argspec.defaults else argspec.defaults
     num_default_args = len(default_args)

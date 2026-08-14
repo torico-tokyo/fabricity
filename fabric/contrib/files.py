@@ -178,7 +178,7 @@ def upload_template(filename, destination, context=None, use_jinja=False,
 
 def sed(filename, before, after, limit='', use_sudo=False, backup='.bak',
     flags='', shell=False):
-    """
+    r"""
     Run a search-and-replace on ``filename`` with given regex patterns.
 
     Equivalent to ``sed -i<backup> -r -e "/<limit>/ s/<before>/<after>/<flags>g"
@@ -452,7 +452,7 @@ def _escape_for_regex(text):
     return ''.join(sh_chars)
 
 def is_win():
-    """
+    r"""
     Return True if remote SSH server is running Windows, False otherwise.
 
     The idea is based on echoing quoted text: \*NIX systems will echo quoted
@@ -462,7 +462,7 @@ def is_win():
         return '"' in run('echo "Will you echo quotation marks"')
 
 def is_win():
-    """
+    r"""
     Return True if remote SSH server is running Windows, False otherwise.
 
     The idea is based on echoing quoted text: \*NIX systems will echo quoted
@@ -472,7 +472,7 @@ def is_win():
         return '"' in run('echo "Will you echo quotation marks"')
 
 def _expand_path(path):
-    """
+    r"""
     Return a path expansion
 
     E.g.    ~/some/path     ->  /home/myuser/some/path

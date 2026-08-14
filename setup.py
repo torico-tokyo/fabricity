@@ -22,7 +22,13 @@ To find out what's new in this version of Fabric, please see `the changelog
 For more information, please see the Fabric website or execute ``fab --help``.
 """
 
-install_requires=['paramiko>=2.0,<3.0', 'six>=1.10.0']
+# paramiko の下限を 3.4.1 にしている。
+# 3.4.0 以下は import 時に CryptographyDeprecationWarning (TripleDES) を出し
+# (2.x / 3.0.0 / 3.3.1 / 3.4.0 で実測)、cryptography 48 で TripleDES が
+# 削除されると動かなくなる。3.4.1 でこの import が修正されている。
+# 一方 4.0 以上は DSS/DSA 対応ごと paramiko.dsskey が削除されており、
+# fabric/network.py がそれを参照しているので上限を張っている。
+install_requires = ['paramiko>=3.4.1,<4.0', 'six>=1.10.0']
 
 
 setup(
@@ -55,6 +61,9 @@ setup(
           'Operating System :: POSIX',
           'Programming Language :: Python :: 3.9',
           'Programming Language :: Python :: 3.10',
+          'Programming Language :: Python :: 3.11',
+          'Programming Language :: Python :: 3.12',
+          'Programming Language :: Python :: 3.13',
           'Topic :: Software Development',
           'Topic :: Software Development :: Build Tools',
           'Topic :: Software Development :: Libraries',
