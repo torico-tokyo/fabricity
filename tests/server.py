@@ -345,7 +345,7 @@ def serve_responses(responses, files, passwords, home, pubkeys, port):
             try:
                 self.init_transport()
                 self.waiting_for_command = False
-                while not self.server.all_done.isSet():
+                while not self.server.all_done.is_set():
                     # Don't overwrite channel if we're waiting for a command.
                     if not self.waiting_for_command:
                         self.channel = self.transport.accept(1)

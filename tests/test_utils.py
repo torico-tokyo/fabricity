@@ -3,22 +3,31 @@ from __future__ import with_statement
 import sys
 from unittest import TestCase
 
-from fudge import Fake, patched_context, with_fakes
+from fudge import Fake, clear_expectations, patched_context, with_fakes
+# NOTE: with_patched_object() works on plain modules/classes but NOT on
+# fabric's `output` dict: fudge decides whether an attribute is "local" by
+# looking in obj.__dict__, and _AttributeDict keeps its attributes as dict
+# *keys*. It therefore treats every flag as newly added and undoes the patch
+# with delattr(), which both raises (there is no _AttributeDict.__delattr__)
+# and would drop the flag's original value. Use fabric's own show()/hide()
+# for output flags instead.
 from fudge.patcher import with_patched_object
-from nose.tools import eq_, raises
+
+import pytest
 
 from fabric.state import output
 from fabric.utils import warn, indent, abort, puts, fastprint, error
 from fabric import utils  # For patching
 from fabric.api import local, quiet
-from fabric.context_managers import settings, hide
+from fabric.context_managers import settings, hide, show
+from fabric.decorators import with_settings
 from fabric.colors import magenta, red
 from mock_streams import mock_streams
-from utils import aborts, FabricTest, assert_contains, assert_not_contains
+from utils import aborts, eq_, FabricTest, assert_contains, assert_not_contains
 
 
 @mock_streams('stderr')
-@with_patched_object(output, 'warnings', True)
+@with_settings(show('warnings'))
 def test_warn():
     """
     warn() should print 'Warning' plus given text
@@ -27,31 +36,26 @@ def test_warn():
     eq_("\nWarning: Test\n\n", sys.stderr.getvalue())
 
 
-def test_indent():
-    for description, input_, output_ in (
-        ("Sanity check: 1 line string",
-            'Test', '    Test'),
-        ("List of strings turns in to strings joined by \\n",
-            ["Test", "Test"], '    Test\n    Test'),
-    ):
-        eq_.description = "indent(): %s" % description
-        yield eq_, indent(input_), output_
-        del eq_.description
+@pytest.mark.parametrize('input_, output_', [
+    pytest.param('Test', '    Test',
+                 id="Sanity check: 1 line string"),
+    pytest.param(["Test", "Test"], '    Test\n    Test',
+                 id="List of strings turns in to strings joined by \\n"),
+])
+def test_indent(input_, output_):
+    eq_(indent(input_), output_)
 
 
-def test_indent_with_strip():
-    for description, input_, output_ in (
-        ("Sanity check: 1 line string",
-            indent('Test', strip=True), '    Test'),
-        ("Check list of strings",
-            indent(["Test", "Test"], strip=True), '    Test\n    Test'),
-        ("Check list of strings",
-            indent(["        Test", "        Test"], strip=True),
-            '    Test\n    Test'),
-    ):
-        eq_.description = "indent(strip=True): %s" % description
-        yield eq_, input_, output_
-        del eq_.description
+@pytest.mark.parametrize('input_, output_', [
+    pytest.param('Test', '    Test',
+                 id="Sanity check: 1 line string"),
+    pytest.param(["Test", "Test"], '    Test\n    Test',
+                 id="Check list of strings"),
+    pytest.param(["        Test", "        Test"], '    Test\n    Test',
+                 id="Check list of over-indented strings"),
+])
+def test_indent_with_strip(input_, output_):
+    eq_(indent(input_, strip=True), output_)
 
 
 @aborts
@@ -64,16 +68,16 @@ def test_abort():
 class TestException(Exception):
     pass
 
-@raises(TestException)
 def test_abort_with_exception():
     """
     abort() should raise a provided exception
     """
-    with settings(abort_exception=TestException):
-        abort("Test")
+    with pytest.raises(TestException):
+        with settings(abort_exception=TestException):
+            abort("Test")
 
 @mock_streams('stderr')
-@with_patched_object(output, 'aborts', True)
+@with_settings(show('aborts'))
 def test_abort_message():
     """
     abort() should print 'Fatal error' plus exception value
@@ -93,13 +97,19 @@ def test_abort_message_only_printed_once():
     # perform when they are allowed to bubble all the way to the top. So, we
     # invoke a subprocess and look at its stderr instead.
     with quiet():
-        result = local("python -m fabric.__main__ -f tests/support/aborts.py kaboom", capture=True)
+        # sys.executable rather than "python": local() shells out via /bin/sh,
+        # which has no notion of an activated virtualenv, so a bare "python"
+        # resolves to whatever is on PATH (often nothing at all).
+        result = local(
+            "%s -m fabric.__main__ -f tests/support/aborts.py kaboom"
+            % sys.executable,
+            capture=True)
     # When error in #1318 is present, this has an extra "It burns!" at end of
     # stderr string.
     eq_(result.stderr, "Fatal error: It burns!\n\nAborting.")
 
 @mock_streams('stderr')
-@with_patched_object(output, 'aborts', True)
+@with_settings(show('aborts'))
 def test_abort_exception_contains_separate_message_and_code():
     """
     abort()'s SystemExit contains distinct .code/.message attributes.
@@ -148,8 +158,8 @@ def test_puts_with_user_output_off():
     """
     puts() shouldn't print input to sys.stdout if "user" output level is off
     """
-    output.user = False
-    puts("You aren't reading this.")
+    with settings(hide('user')):
+        puts("You aren't reading this.")
     eq_(sys.stdout.getvalue(), "")
 
 
@@ -179,6 +189,13 @@ def test_fastprint_calls_puts():
     """
     fastprint() is just an alias to puts()
     """
+    # TestErrorHandling's decorators build their Fake(expect_call=True) objects
+    # when this module is imported, and those land in fudge's global (process
+    # wide) expectation registry. @with_fakes verifies *every* registered
+    # expectation, so without this the assertion below fails complaining about
+    # someone else's fake. FabricTest.setup_method does the same clearing for
+    # class-based tests.
+    clear_expectations()
     text = "Some output"
     fake_puts = Fake('puts', expect_call=True).with_args(
         text=text, show_prefix=False, end="", flush=True
@@ -230,7 +247,7 @@ class TestErrorHandling(FabricTest):
     @mock_streams('stdout')
     @with_patched_object(utils, 'abort', Fake('abort', callable=True,
         expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
-    @with_patched_object(output, 'exceptions', True)
+    @with_settings(show('exceptions'))
     @with_patched_object(utils, 'format_exc', Fake('format_exc', callable=True,
         expect_call=True).returns(dummy_string))
     def test_includes_traceback_if_exceptions_logging_is_on(self):
@@ -243,7 +260,7 @@ class TestErrorHandling(FabricTest):
     @mock_streams('stdout')
     @with_patched_object(utils, 'abort', Fake('abort', callable=True,
         expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
-    @with_patched_object(output, 'debug', True)
+    @with_settings(show('debug'))
     @with_patched_object(utils, 'format_exc', Fake('format_exc', callable=True,
         expect_call=True).returns(dummy_string))
     def test_includes_traceback_if_debug_logging_is_on(self):
@@ -256,7 +273,7 @@ class TestErrorHandling(FabricTest):
     @mock_streams('stdout')
     @with_patched_object(utils, 'abort', Fake('abort', callable=True,
         expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
-    @with_patched_object(output, 'exceptions', True)
+    @with_settings(show('exceptions'))
     @with_patched_object(utils, 'format_exc', Fake('format_exc', callable=True,
         expect_call=True).returns(None))
     def test_doesnt_print_None_when_no_traceback_present(self):
@@ -287,9 +304,15 @@ class TestErrorHandling(FabricTest):
         eq_(magenta("\nWarning: oh god\n\n"), sys.stderr.getvalue())
 
     @mock_streams('stderr')
-    @raises(SystemExit)
     def test_errors_print_red_if_colorize_on(self):
-        with settings(colorize_errors=True):
-            error("oh god", func=utils.abort, stderr="oops")
-        # can't use assert_contains as ANSI codes contain regex specialchars
-        eq_(red("\\Error: oh god\n\n"), sys.stderr.getvalue())
+        # NOTE: abort() raises SystemExit out of the error() call, so the
+        # stderr assertion below is unreachable. That was already true under
+        # nose's @raises(SystemExit) decorator, which wrapped the whole body;
+        # the pytest.raises block keeps the same scope rather than silently
+        # enabling an assertion that has never actually run.
+        with pytest.raises(SystemExit):
+            with settings(colorize_errors=True):
+                error("oh god", func=utils.abort, stderr="oops")
+            # can't use assert_contains as ANSI codes contain regex
+            # specialchars
+            eq_(red("\\Error: oh god\n\n"), sys.stderr.getvalue())

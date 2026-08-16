@@ -2,14 +2,13 @@ import os
 import six
 import sys
 
-from nose.tools import eq_, ok_
 
 from fabric.state import env, output
 from fabric.context_managers import (cd, settings, lcd, hide, shell_env, quiet,
     warn_only, prefix, path)
 from fabric.operations import run, local, _prefix_commands
 from mock_streams import mock_streams
-from utils import FabricTest
+from utils import eq_, FabricTest
 from server import server
 
 
@@ -169,8 +168,8 @@ def test_setting_new_env_dict_key_should_work():
     key = 'thisshouldnevereverexistseriouslynow'
     value = 'a winner is you'
     with settings(**{key: value}):
-        ok_(key in env)
-    ok_(key not in env)
+        assert key in env
+    assert key not in env
 
 
 def test_settings():
@@ -206,9 +205,9 @@ def test_settings_with_other_context_managers():
 
     with settings(lcd("here"), testval1="inner 1"):
         eq_(env.testval1, "inner 1")
-        ok_(env.lcwd.endswith("here")) # Should be the side-effect of adding cd to settings
+        assert env.lcwd.endswith("here") # Should be the side-effect of adding cd to settings
 
-    ok_(env.testval1, "outer 1")
+    assert env.testval1, "outer 1"
     eq_(env.lcwd, prev_lcwd)
 
 
@@ -229,7 +228,7 @@ def test_settings_clean_revert():
         eq_(env.inner_only, "only")
         env.modified = "modified internally"
     eq_(env.modified, "modified internally")
-    ok_("inner_only" not in env)
+    assert "inner_only" not in env
 
 
 #
@@ -252,19 +251,19 @@ class TestQuietAndWarnOnly(FabricTest):
     def test_quiet_hides_all_output(self):
         # Sanity test - normally this is not empty
         run("ls /simple")
-        ok_(sys.stdout.getvalue())
+        assert sys.stdout.getvalue()
         # Reset
         sys.stdout = six.StringIO()
         # Real test
         with quiet():
             run("ls /simple")
         # Empty output
-        ok_(not sys.stdout.getvalue())
+        assert not sys.stdout.getvalue()
         # Reset
         sys.stdout = six.StringIO()
         # Kwarg test
         run("ls /simple", quiet=True)
-        ok_(not sys.stdout.getvalue())
+        assert not sys.stdout.getvalue()
 
     @server(responses={'barf': [
         "this is my stdout",
@@ -296,8 +295,8 @@ class TestQuietAndWarnOnly(FabricTest):
 # path() (distinct from shell_env)
 
 class TestPathManager(FabricTest):
-    def setup(self):
-        super(TestPathManager, self).setup()
+    def setup_method(self, method):
+        super(TestPathManager, self).setup_method(method)
         self.real = os.environ.get('PATH')
 
     def via_local(self):

@@ -2,7 +2,8 @@ from __future__ import with_statement
 
 from fudge import Fake, patched_context, with_fakes
 import unittest
-from nose.tools import raises, ok_
+
+import pytest
 import random
 import sys
 
@@ -21,10 +22,10 @@ def test_base_task_provides_undefined_name():
     task = Task()
     eq_("undefined", task.name)
 
-@raises(NotImplementedError)
 def test_base_task_raises_exception_on_call_to_run():
     task = Task()
-    task.run()
+    with pytest.raises(NotImplementedError):
+        task.run()
 
 class TestWrappedCallableTask(unittest.TestCase):
     def test_passes_unused_args_to_parent(self):
@@ -167,7 +168,7 @@ def dict_contains(superset, subset):
     Assert that all key/val pairs in dict 'subset' also exist in 'superset'
     """
     for key, value in subset.iteritems():
-        ok_(key in superset)
+        assert key in superset
         eq_(superset[key], value)
 
 

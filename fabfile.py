@@ -11,17 +11,24 @@ from fabric.api import task, local, lcd
 @task(default=True)
 def test(args=None):
     """
-    Run all unit tests and doctests.
+    Run all unit tests.
 
-    Specify string argument ``args`` for additional args to ``nosetests``.
+    Specify string argument ``args`` for additional args to ``pytest``, e.g.
+    ``fab test:integration`` to run the integration suite instead.
     """
-    import nose
-    # Default to explicitly targeting the 'tests' folder, but only if nothing
-    # is being overridden.
-    tests = "" if args else " tests"
-    default_args = "-sv --with-doctest --nologcapture --with-color %s" % tests
-    default_args += (" " + args) if args else ""
-    nose.core.run_exit(argv=[''] + default_args.split())
+    # Output capturing is disabled in setup.cfg (the suite replaces
+    # sys.stdout/sys.stderr itself and runs a real local SSH server), so no
+    # -s is needed here.
+    if args:
+        local("pytest -v %s" % args)
+        return
+    local("pytest -v")
+    # A couple of fabric's own modules carry doctests. They sit outside
+    # testpaths, so they need their own run -- pointing --doctest-modules at
+    # tests/ instead would try to execute the vendored fudge's Python 2
+    # doctests. (The old nose command passed --with-doctest but targeted
+    # `tests`, which contains no doctests, so this never actually ran.)
+    local("pytest -v --doctest-modules fabric")
 
 
 @task

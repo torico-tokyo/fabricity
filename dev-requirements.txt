@@ -2,12 +2,14 @@
 # checkout installed! Stable Paramiko may not be sufficient!
 
 # Test runner/testing utils
-nose<2.0
-# Rudolf adds color to the output of 'fab test'. This is a custom fork
-# addressing Python 2.7 and Nose's 'skip' plugin compatibility issues.
--e git+https://github.com/iknite/rudolf#egg=rudolf
-# Mocking library
-Fudge<1.0
+pytest>=7.0
+# NOTE: the mocking library (fudge) is NOT listed here. It cannot be installed
+# on any supported interpreter -- fudge 1.1.1 is Python 2 source that relies on
+# setuptools running 2to3 at install time, and both use_2to3 (setuptools 58)
+# and lib2to3 (Python 3.13) are gone. A converted copy lives in
+# tests/_vendor/fudge; see tests/_vendor/README.md.
+# Template rendering, exercised by contrib.files.upload_template(use_jinja=True)
+jinja2
 # Documentation generation
 Sphinx==1.3.4
 releases>=1.2.0,<2

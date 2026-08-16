@@ -9,10 +9,10 @@ del sys.path[0]
 
 
 class Integration(object):
-    def setup(self):
+    def setup_method(self, method):
         # Just so subclasses can super() us w/o fear. Meh.
         pass
 
-    def teardown(self):
+    def teardown_method(self, method):
         # Just so subclasses can super() us w/o fear. Meh.
         pass

@@ -8,8 +8,8 @@ import six
 import os.path
 import sys
 
+import pytest
 from fudge import Fake, patched_context
-from nose.tools import ok_, eq_
 
 from fabric.decorators import hosts, roles, task
 from fabric.context_managers import settings
@@ -20,7 +20,7 @@ import fabric.state
 from fabric.tasks import Task, WrappedCallableTask
 from fabric.task_utils import _crawl, crawl, merge
 
-from utils import FabricTest, fabfile, path_prefix, aborts
+from utils import eq_, FabricTest, fabfile, path_prefix, aborts
 
 
 # Stupid load_fabfile wrapper to hide newly added return value.
@@ -33,35 +33,35 @@ def load_fabfile(*args, **kwargs):
 # Basic CLI stuff
 #
 
-def test_argument_parsing():
-    for args, output in [
-        # Basic
-        ('abc', ('abc', [], {}, [], [], [])),
-        # Arg
-        ('ab:c', ('ab', ['c'], {}, [], [], [])),
-        # Kwarg
-        ('a:b=c', ('a', [], {'b':'c'}, [], [], [])),
-        # Arg and kwarg
-        ('a:b=c,d', ('a', ['d'], {'b':'c'}, [], [], [])),
-        # Multiple kwargs
-        ('a:b=c,d=e', ('a', [], {'b':'c','d':'e'}, [], [], [])),
-        # Host
-        ('abc:host=foo', ('abc', [], {}, ['foo'], [], [])),
-        # Hosts with single host
-        ('abc:hosts=foo', ('abc', [], {}, ['foo'], [], [])),
-        # Hosts with multiple hosts
-        # Note: in a real shell, one would need to quote or escape "foo;bar".
-        # But in pure-Python that would get interpreted literally, so we don't.
-        ('abc:hosts=foo;bar', ('abc', [], {}, ['foo', 'bar'], [], [])),
+@pytest.mark.parametrize('args, output', [
+    # Basic
+    ('abc', ('abc', [], {}, [], [], [])),
+    # Arg
+    ('ab:c', ('ab', ['c'], {}, [], [], [])),
+    # Kwarg
+    ('a:b=c', ('a', [], {'b':'c'}, [], [], [])),
+    # Arg and kwarg
+    ('a:b=c,d', ('a', ['d'], {'b':'c'}, [], [], [])),
+    # Multiple kwargs
+    ('a:b=c,d=e', ('a', [], {'b':'c','d':'e'}, [], [], [])),
+    # Host
+    ('abc:host=foo', ('abc', [], {}, ['foo'], [], [])),
+    # Hosts with single host
+    ('abc:hosts=foo', ('abc', [], {}, ['foo'], [], [])),
+    # Hosts with multiple hosts
+    # Note: in a real shell, one would need to quote or escape "foo;bar".
+    # But in pure-Python that would get interpreted literally, so we don't.
+    ('abc:hosts=foo;bar', ('abc', [], {}, ['foo', 'bar'], [], [])),
 
-        # Exclude hosts
-        ('abc:hosts=foo;bar,exclude_hosts=foo', ('abc', [], {}, ['foo', 'bar'], [], ['foo'])),
-        ('abc:hosts=foo;bar,exclude_hosts=foo;bar', ('abc', [], {}, ['foo', 'bar'], [], ['foo','bar'])),
-       # Empty string args
-        ("task:x=y,z=", ('task', [], {'x': 'y', 'z': ''}, [], [], [])),
-        ("task:foo,,x=y", ('task', ['foo', ''], {'x': 'y'}, [], [], [])),
-    ]:
-        yield eq_, parse_arguments([args]), [output]
+    # Exclude hosts
+    ('abc:hosts=foo;bar,exclude_hosts=foo', ('abc', [], {}, ['foo', 'bar'], [], ['foo'])),
+    ('abc:hosts=foo;bar,exclude_hosts=foo;bar', ('abc', [], {}, ['foo', 'bar'], [], ['foo','bar'])),
+   # Empty string args
+    ("task:x=y,z=", ('task', [], {'x': 'y', 'z': ''}, [], [], [])),
+    ("task:foo,,x=y", ('task', ['foo', ''], {'x': 'y'}, [], [], [])),
+])
+def test_argument_parsing(args, output):
+    eq_(parse_arguments([args]), [output])
 
 
 def test_escaped_task_arg_split():
@@ -408,21 +408,23 @@ def run_load_fabfile(path, sys_path):
     # Restore
     sys.path = orig_path
 
-def test_load_fabfile_should_not_remove_real_path_elements():
-    for fabfile_path, sys_dot_path in (
-        # Directory not in path
-        ('subdir/fabfile.py', ['not_subdir']),
-        ('fabfile.py', ['nope']),
-        # Directory in path, but not at front
-        ('subdir/fabfile.py', ['not_subdir', 'subdir']),
-        ('fabfile.py', ['not_subdir', '']),
-        ('fabfile.py', ['not_subdir', '', 'also_not_subdir']),
-        # Directory in path, and at front already
-        ('subdir/fabfile.py', ['subdir']),
-        ('subdir/fabfile.py', ['subdir', 'not_subdir']),
-        ('fabfile.py', ['', 'some_dir', 'some_other_dir']),
-    ):
-            yield run_load_fabfile, fabfile_path, sys_dot_path
+
+@pytest.mark.parametrize('fabfile_path, sys_dot_path', [
+    # Directory not in path
+    ('subdir/fabfile.py', ['not_subdir']),
+    ('fabfile.py', ['nope']),
+    # Directory in path, but not at front
+    ('subdir/fabfile.py', ['not_subdir', 'subdir']),
+    ('fabfile.py', ['not_subdir', '']),
+    ('fabfile.py', ['not_subdir', '', 'also_not_subdir']),
+    # Directory in path, and at front already
+    ('subdir/fabfile.py', ['subdir']),
+    ('subdir/fabfile.py', ['subdir', 'not_subdir']),
+    ('fabfile.py', ['', 'some_dir', 'some_other_dir']),
+])
+def test_load_fabfile_should_not_remove_real_path_elements(fabfile_path,
+                                                           sys_dot_path):
+    run_load_fabfile(fabfile_path, sys_dot_path)
 
 
 #
@@ -435,42 +437,42 @@ class TestTaskAliases(FabricTest):
         with path_prefix(f):
             docs, funcs = load_fabfile(f)
             eq_(len(funcs), 2)
-            ok_("foo" in funcs)
-            ok_("foo_aliased" in funcs)
+            assert "foo" in funcs
+            assert "foo_aliased" in funcs
 
     def test_nested_alias(self):
         f = fabfile("nested_alias.py")
         with path_prefix(f):
             docs, funcs = load_fabfile(f)
-            ok_("nested" in funcs)
+            assert "nested" in funcs
             eq_(len(funcs["nested"]), 2)
-            ok_("foo" in funcs["nested"])
-            ok_("foo_aliased" in funcs["nested"])
+            assert "foo" in funcs["nested"]
+            assert "foo_aliased" in funcs["nested"]
 
     def test_flat_aliases(self):
         f = fabfile("flat_aliases.py")
         with path_prefix(f):
             docs, funcs = load_fabfile(f)
             eq_(len(funcs), 3)
-            ok_("foo" in funcs)
-            ok_("foo_aliased" in funcs)
-            ok_("foo_aliased_two" in funcs)
+            assert "foo" in funcs
+            assert "foo_aliased" in funcs
+            assert "foo_aliased_two" in funcs
 
     def test_nested_aliases(self):
         f = fabfile("nested_aliases.py")
         with path_prefix(f):
             docs, funcs = load_fabfile(f)
-            ok_("nested" in funcs)
+            assert "nested" in funcs
             eq_(len(funcs["nested"]), 3)
-            ok_("foo" in funcs["nested"])
-            ok_("foo_aliased" in funcs["nested"])
-            ok_("foo_aliased_two" in funcs["nested"])
+            assert "foo" in funcs["nested"]
+            assert "foo_aliased" in funcs["nested"]
+            assert "foo_aliased_two" in funcs["nested"]
 
 
 class TestNamespaces(FabricTest):
-    def setup(self):
+    def setup_method(self, method):
         # Parent class preserves current env
-        super(TestNamespaces, self).setup()
+        super(TestNamespaces, self).setup_method(method)
         # Reset new-style-tests flag so running tests via Fab itself doesn't
         # muck with it.
         import fabric.state
@@ -485,8 +487,8 @@ class TestNamespaces(FabricTest):
         with path_prefix(implicit):
             docs, funcs = load_fabfile(implicit)
             eq_(len(funcs), 2)
-            ok_("foo" in funcs)
-            ok_("bar" in funcs)
+            assert "foo" in funcs
+            assert "bar" in funcs
 
     def test_exception_exclusion(self):
         """
@@ -495,8 +497,8 @@ class TestNamespaces(FabricTest):
         exceptions = fabfile("exceptions_fabfile.py")
         with path_prefix(exceptions):
             docs, funcs = load_fabfile(exceptions)
-            ok_("some_task" in funcs)
-            ok_("NotATask" not in funcs)
+            assert "some_task" in funcs
+            assert "NotATask" not in funcs
 
     def test_explicit_discovery(self):
         """
@@ -506,8 +508,8 @@ class TestNamespaces(FabricTest):
         with path_prefix(explicit):
             docs, funcs = load_fabfile(explicit)
             eq_(len(funcs), 1)
-            ok_("foo" in funcs)
-            ok_("bar" not in funcs)
+            assert "foo" in funcs
+            assert "bar" not in funcs
 
     def test_should_load_decorated_tasks_only_if_one_is_found(self):
         """
@@ -517,7 +519,7 @@ class TestNamespaces(FabricTest):
         with path_prefix(module):
             docs, funcs = load_fabfile(module)
             eq_(len(funcs), 1)
-            ok_('foo' in funcs)
+            assert 'foo' in funcs
 
     def test_class_based_tasks_are_found_with_proper_name(self):
         """
@@ -527,7 +529,7 @@ class TestNamespaces(FabricTest):
         with path_prefix(module):
             docs, funcs = load_fabfile(module)
             eq_(len(funcs), 1)
-            ok_('foo' in funcs)
+            assert 'foo' in funcs
 
     def test_class_based_tasks_are_found_with_variable_name(self):
         """
@@ -538,7 +540,7 @@ class TestNamespaces(FabricTest):
         with path_prefix(module):
             docs, funcs = load_fabfile(module)
             eq_(len(funcs), 1)
-            ok_('foo' in funcs)
+            assert 'foo' in funcs
             eq_(funcs['foo'].name, 'foo')
 
     def test_recursion_steps_into_nontask_modules(self):
@@ -549,7 +551,7 @@ class TestNamespaces(FabricTest):
         with path_prefix(module):
             docs, funcs = load_fabfile(module)
             eq_(len(funcs), 1)
-            ok_('submodule.subsubmodule.deeptask' in _task_names(funcs))
+            assert 'submodule.subsubmodule.deeptask' in _task_names(funcs)
 
     def test_newstyle_task_presence_skips_classic_task_modules(self):
         """
@@ -559,7 +561,7 @@ class TestNamespaces(FabricTest):
         with path_prefix(module):
             docs, funcs = load_fabfile(module)
             eq_(len(funcs), 1)
-            ok_('submodule.classic_task' not in _task_names(funcs))
+            assert 'submodule.classic_task' not in _task_names(funcs)
 
     def test_task_decorator_plays_well_with_others(self):
         """
@@ -589,29 +591,36 @@ def list_output(module, format_, expected):
         with patched_context(fabric.state, 'commands', tasks):
             eq_output(docstring, format_, expected)
 
-def test_list_output():
-    lead = ":\n\n    "
-    normal_head = COMMANDS_HEADER + lead
-    nested_head = COMMANDS_HEADER + NESTED_REMINDER + lead
-    for desc, module, format_, expected in (
-        ("shorthand (& with namespacing)", 'deep', 'short', "submodule.subsubmodule.deeptask"),
-        ("normal (& with namespacing)", 'deep', 'normal', normal_head + "submodule.subsubmodule.deeptask"),
-        ("normal (with docstring)", 'docstring', 'normal', normal_head + "foo  Foos!"),
-        ("nested (leaf only)", 'deep', 'nested', nested_head + """submodule:
+
+LIST_LEAD = ":\n\n    "
+NORMAL_HEAD = COMMANDS_HEADER + LIST_LEAD
+NESTED_HEAD = COMMANDS_HEADER + NESTED_REMINDER + LIST_LEAD
+
+
+@pytest.mark.parametrize('module, format_, expected', [
+    pytest.param('deep', 'short', "submodule.subsubmodule.deeptask",
+                 id="shorthand (& with namespacing)"),
+    pytest.param('deep', 'normal',
+                 NORMAL_HEAD + "submodule.subsubmodule.deeptask",
+                 id="normal (& with namespacing)"),
+    pytest.param('docstring', 'normal', NORMAL_HEAD + "foo  Foos!",
+                 id="normal (with docstring)"),
+    pytest.param('deep', 'nested', NESTED_HEAD + """submodule:
         subsubmodule:
-            deeptask"""),
-        ("nested (full)", 'tree', 'nested', nested_head + """build_docs
+            deeptask""",
+                 id="nested (leaf only)"),
+    pytest.param('tree', 'nested', NESTED_HEAD + """build_docs
     deploy
     db:
         migrate
     system:
         install_package
         debian:
-            update_apt"""),
-    ):
-        list_output.description = "--list output: %s" % desc
-        yield list_output, module, format_, expected
-        del list_output.description
+            update_apt""",
+                 id="nested (full)"),
+])
+def test_list_output(module, format_, expected):
+    list_output(module, format_, expected)
 
 
 def name_to_task(name):
@@ -629,50 +638,54 @@ def strings_to_tasks(d):
         ret[key] = val
     return ret
 
-def test_task_names():
-    for desc, input_, output in (
-        ('top level (single)', {'a': 5}, ['a']),
-        ('top level (multiple, sorting)', {'a': 5, 'b': 6}, ['a', 'b']),
-        ('just nested', {'a': {'b': 5}}, ['a.b']),
-        ('mixed', {'a': 5, 'b': {'c': 6}}, ['a', 'b.c']),
-        ('top level comes before nested', {'z': 5, 'b': {'c': 6}}, ['z', 'b.c']),
-        ('peers sorted equally', {'z': 5, 'b': {'c': 6}, 'd': {'e': 7}}, ['z', 'b.c', 'd.e']),
-        (
-            'complex tree',
-            {
-                'z': 5,
-                'b': {
-                    'c': 6,
-                    'd': {
-                        'e': {
-                            'f': '7'
-                        }
-                    },
-                    'g': 8
+
+@pytest.mark.parametrize('input_, output', [
+    pytest.param({'a': 5}, ['a'],
+                 id='top level (single)'),
+    pytest.param({'a': 5, 'b': 6}, ['a', 'b'],
+                 id='top level (multiple, sorting)'),
+    pytest.param({'a': {'b': 5}}, ['a.b'],
+                 id='just nested'),
+    pytest.param({'a': 5, 'b': {'c': 6}}, ['a', 'b.c'],
+                 id='mixed'),
+    pytest.param({'z': 5, 'b': {'c': 6}}, ['z', 'b.c'],
+                 id='top level comes before nested'),
+    pytest.param({'z': 5, 'b': {'c': 6}, 'd': {'e': 7}}, ['z', 'b.c', 'd.e'],
+                 id='peers sorted equally'),
+    pytest.param(
+        {
+            'z': 5,
+            'b': {
+                'c': 6,
+                'd': {
+                    'e': {
+                        'f': '7'
+                    }
                 },
-                'h': 9,
-                'w': {
-                    'y': 10
-                }
+                'g': 8
             },
-            ['h', 'z', 'b.c', 'b.g', 'b.d.e.f', 'w.y']
-        ),
-    ):
-        eq_.description = "task name flattening: %s" % desc
-        yield eq_, _task_names(strings_to_tasks(input_)), output
-        del eq_.description
+            'h': 9,
+            'w': {
+                'y': 10
+            }
+        },
+        ['h', 'z', 'b.c', 'b.g', 'b.d.e.f', 'w.y'],
+        id='complex tree'),
+])
+def test_task_names(input_, output):
+    eq_(_task_names(strings_to_tasks(input_)), output)
 
 
-def test_crawl():
-    for desc, name, mapping, output in (
-        ("base case", 'a', {'a': 5}, 5),
-        ("one level", 'a.b', {'a': {'b': 5}}, 5),
-        ("deep", 'a.b.c.d.e', {'a': {'b': {'c': {'d': {'e': 5}}}}}, 5),
-        ("full tree", 'a.b.c', {'a': {'b': {'c': 5}, 'd': 6}, 'z': 7}, 5)
-    ):
-        eq_.description = "crawling dotted names: %s" % desc
-        yield eq_, _crawl(name, mapping), output
-        del eq_.description
+@pytest.mark.parametrize('name, mapping, output', [
+    pytest.param('a', {'a': 5}, 5, id="base case"),
+    pytest.param('a.b', {'a': {'b': 5}}, 5, id="one level"),
+    pytest.param('a.b.c.d.e', {'a': {'b': {'c': {'d': {'e': 5}}}}}, 5,
+                 id="deep"),
+    pytest.param('a.b.c', {'a': {'b': {'c': 5}, 'd': 6}, 'z': 7}, 5,
+                 id="full tree"),
+])
+def test_crawl(name, mapping, output):
+    eq_(_crawl(name, mapping), output)
 
 
 def test_mapping_task_classes():
@@ -683,23 +696,21 @@ def test_mapping_task_classes():
     mapping_task""")
 
 
-def test_default_task_listings():
+@pytest.mark.parametrize('format_, expected', [
+    ('short', """mymodule
+mymodule.long_task_name"""),
+    ('normal', COMMANDS_HEADER + """:\n
+    mymodule
+    mymodule.long_task_name"""),
+    ('nested', COMMANDS_HEADER + NESTED_REMINDER + """:\n
+    mymodule:
+        long_task_name"""),
+])
+def test_default_task_listings(format_, expected):
     """
     @task(default=True) should cause task to also load under module's name
     """
-    for format_, expected in (
-        ('short', """mymodule
-mymodule.long_task_name"""),
-        ('normal', COMMANDS_HEADER + """:\n
-    mymodule
-    mymodule.long_task_name"""),
-        ('nested', COMMANDS_HEADER + NESTED_REMINDER + """:\n
-    mymodule:
-        long_task_name""")
-    ):
-        list_output.description = "Default task --list output: %s" % format_
-        yield list_output, 'default_tasks', format_, expected
-        del list_output.description
+    list_output('default_tasks', format_, expected)
 
 
 def test_default_task_loading():
@@ -707,7 +718,7 @@ def test_default_task_loading():
     crawl() should return default tasks where found, instead of module objs
     """
     docs, tasks = load_fabfile(fabfile('default_tasks'))
-    ok_(isinstance(crawl('mymodule', tasks), Task))
+    assert isinstance(crawl('mymodule', tasks), Task)
 
 
 def test_aliases_appear_in_fab_list():

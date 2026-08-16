@@ -1,7 +1,8 @@
 import random
 import sys
 
-from nose.tools import eq_, ok_, assert_true, assert_false, assert_equal
+import pytest
+
 import fudge
 from fudge import Fake, with_fakes, patched_context
 
@@ -12,6 +13,7 @@ from fabric.tasks import _parallel_tasks, requires_parallel, execute
 from fabric.context_managers import lcd, settings, hide
 
 from mock_streams import mock_streams
+from utils import eq_
 
 
 #
@@ -42,7 +44,7 @@ def test_task_returns_an_instance_of_wrappedfunctask_object():
     def foo():
         pass
     task = decorators.task(foo)
-    ok_(isinstance(task, tasks.WrappedCallableTask))
+    assert isinstance(task, tasks.WrappedCallableTask)
 
 
 def test_task_will_invoke_provided_class():
@@ -144,10 +146,10 @@ def single_run():
     pass
 
 def test_runs_once():
-    assert_false(hasattr(single_run, 'return_value'))
+    assert not hasattr(single_run, 'return_value')
     single_run()
-    assert_true(hasattr(single_run, 'return_value'))
-    assert_equal(None, single_run())
+    assert hasattr(single_run, 'return_value')
+    assert single_run() is None
 
 
 
@@ -186,32 +188,30 @@ fake_tasks = {
     'parallel2': parallel2,
 }
 
-def parallel_task_helper(actual_tasks, expected):
-    commands_to_run = map(lambda x: [x], actual_tasks)
+
+@pytest.mark.parametrize('task_names, expected', [
+    pytest.param(['serial'], False,
+                 id="One @serial-decorated task == no parallelism"),
+    pytest.param(['parallel'], True,
+                 id="One @parallel-decorated task == parallelism"),
+    pytest.param(['parallel', 'serial'], True,
+                 id="One @parallel- and one @serial-decorated task"
+                    " == paralellism"),
+    pytest.param(['serial2', 'serial3'], True,
+                 id="Tasks decorated with both @serial and @parallel"
+                    " count as @parallel"),
+])
+def test_parallel_tasks(task_names, expected):
+    commands_to_run = map(lambda x: [x], task_names)
     with patched_context(fabric.state, 'commands', fake_tasks):
         eq_(_parallel_tasks(commands_to_run), expected)
-
-def test_parallel_tasks():
-    for desc, task_names, expected in (
-        ("One @serial-decorated task == no parallelism",
-            ['serial'], False),
-        ("One @parallel-decorated task == parallelism",
-            ['parallel'], True),
-        ("One @parallel-decorated and one @serial-decorated task == paralellism",
-            ['parallel', 'serial'], True),
-        ("Tasks decorated with both @serial and @parallel count as @parallel",
-            ['serial2', 'serial3'], True)
-    ):
-        parallel_task_helper.description = desc
-        yield parallel_task_helper, task_names, expected
-        del parallel_task_helper.description
 
 def test_parallel_wins_vs_serial():
     """
     @parallel takes precedence over @serial when both are used on one task
     """
-    ok_(requires_parallel(serial2))
-    ok_(requires_parallel(serial3))
+    assert requires_parallel(serial2)
+    assert requires_parallel(serial3)
 
 @mock_streams('stdout')
 def test_global_parallel_honors_runs_once():
@@ -237,8 +237,8 @@ def use_roles():
     pass
 
 def test_roles():
-    assert_true(hasattr(use_roles, 'roles'))
-    assert_equal(use_roles.roles, ['test'])
+    assert hasattr(use_roles, 'roles')
+    assert use_roles.roles == ['test']
 
 
 
@@ -251,8 +251,8 @@ def use_hosts():
     pass
 
 def test_hosts():
-    assert_true(hasattr(use_hosts, 'hosts'))
-    assert_equal(use_hosts.hosts, ['test'])
+    assert hasattr(use_hosts, 'hosts')
+    assert use_hosts.hosts == ['test']
 
 
 
@@ -266,7 +266,7 @@ def test_with_settings_passes_env_vars_into_decorated_function():
     def some_task():
         return env.value
     decorated_task = decorators.with_settings(value=random_return)(some_task)
-    ok_(some_task(), msg="sanity check")
+    assert some_task(), "sanity check"
     eq_(random_return, decorated_task())
 
 def test_with_settings_with_other_context_managers():
@@ -279,7 +279,7 @@ def test_with_settings_with_other_context_managers():
 
     def some_task():
         eq_(env.testval1, "inner 1")
-        ok_(env.lcwd.endswith("here")) # Should be the side-effect of adding cd to settings
+        assert env.lcwd.endswith("here") # Should be the side-effect of adding cd to settings
 
     decorated_task = decorators.with_settings(
         lcd("here"),
@@ -287,5 +287,5 @@ def test_with_settings_with_other_context_managers():
     )(some_task)
     decorated_task()
 
-    ok_(env.testval1, "outer 1")
+    assert env.testval1, "outer 1"
     eq_(env.lcwd, prev_lcwd)

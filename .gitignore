@@ -14,6 +14,7 @@ build/
 tags
 TAGS
 .tox
+.pytest_cache/
 tox.ini
 .idea/
 sites/*/_build

@@ -2,7 +2,7 @@ from __future__ import with_statement
 
 import sys
 
-from nose.tools import ok_, raises
+import pytest
 from fudge import (Fake, patch_object, with_patched_object, patched_context,
                    with_fakes)
 
@@ -23,51 +23,89 @@ from utils import (FabricTest, aborts, assert_contains, eq_, password_response,
                    patched_input, support)
 
 
+# normalize() falls back to the current system user, so expected host strings
+# are built from it. Resolved once at import time because @parametrize
+# arguments are evaluated during collection, not inside the test.
+SYSTEM_USERNAME = _get_system_username()
+
+
 #
 # Subroutines, e.g. host string normalization
 #
 
 
+# NOTE: these normalization checks are deliberately module-level functions
+# rather than TestNetwork methods. They assert against the *default* env (the
+# system username, port 22), whereas FabricTest.setup_method points env at the
+# local test server (user 'username', port 2200). Under nose they ran outside
+# that setup because they were generator-based; keeping them out of the class
+# preserves what they actually assert.
+@pytest.mark.parametrize('input, output_', [
+    pytest.param('localhost', 'localhost',
+                 id="Sanity check: equal strings remain equal"),
+    pytest.param('localhost', SYSTEM_USERNAME + '@localhost',
+                 id="Empty username is same as get_system_username"),
+    pytest.param('localhost', 'localhost:22',
+                 id="Empty port is same as port 22"),
+    pytest.param('localhost', SYSTEM_USERNAME + '@localhost:22',
+                 id="Both username and port tested at once, for kicks"),
+])
+def test_host_string_normalization(input, output_):
+    eq_(normalize(input), normalize(output_))
+
+
+@pytest.mark.parametrize('input, output_', [
+    pytest.param('2001:DB8:0:0:0:0:0:1',
+                 (SYSTEM_USERNAME, '2001:DB8:0:0:0:0:0:1', '22'),
+                 id="Full IPv6 address"),
+    pytest.param('2001:DB8::1', (SYSTEM_USERNAME, '2001:DB8::1', '22'),
+                 id="IPv6 address in short form"),
+    pytest.param('::1', (SYSTEM_USERNAME, '::1', '22'),
+                 id="IPv6 localhost"),
+    pytest.param('[2001:DB8::1]:1222',
+                 (SYSTEM_USERNAME, '2001:DB8::1', '1222'),
+                 id="Square brackets are required to separate"
+                    " non-standard port from IPv6 address"),
+    pytest.param('user@2001:DB8::1', ('user', '2001:DB8::1', '22'),
+                 id="Username and IPv6 address"),
+    pytest.param('user@[2001:DB8::1]:1222', ('user', '2001:DB8::1', '1222'),
+                 id="Username and IPv6 address with non-standard port"),
+])
+def test_normalization_for_ipv6(input, output_):
+    """
+    normalize() will accept IPv6 notation and can separate host and port
+    """
+    eq_(normalize(input), output_)
+
+
+@pytest.mark.parametrize('input', [
+    pytest.param('', id="empty string"),
+    pytest.param(None, id="None"),
+])
+def test_normalization_of_empty_input(input):
+    """
+    normalize() returns empty strings for empty input
+    """
+    eq_(normalize(input), ('', '', ''))
+
+
+@pytest.mark.parametrize('string1, string2', [
+    pytest.param('localhost', 'localhost',
+                 id="Sanity check: equal strings remain equal"),
+    pytest.param('localhost:22', SYSTEM_USERNAME + '@localhost:22',
+                 id="Empty username is same as get_system_username"),
+    pytest.param('user@localhost', 'user@localhost:22',
+                 id="Empty port is same as port 22"),
+    pytest.param('localhost', SYSTEM_USERNAME + '@localhost:22',
+                 id="Both username and port"),
+    pytest.param('2001:DB8::1', SYSTEM_USERNAME + '@[2001:DB8::1]:22',
+                 id="IPv6 address"),
+])
+def test_host_string_denormalization(string1, string2):
+    eq_(denormalize(string1), denormalize(string2))
+
+
 class TestNetwork(FabricTest):
-    def test_host_string_normalization(self):
-        username = _get_system_username()
-        for description, input, output_ in (
-            ("Sanity check: equal strings remain equal",
-                'localhost', 'localhost'),
-            ("Empty username is same as get_system_username",
-                'localhost', username + '@localhost'),
-            ("Empty port is same as port 22",
-                'localhost', 'localhost:22'),
-            ("Both username and port tested at once, for kicks",
-                'localhost', username + '@localhost:22'),
-        ):
-            eq_.description = "Host-string normalization: %s" % description
-            yield eq_, normalize(input), normalize(output_)
-            del eq_.description
-
-    def test_normalization_for_ipv6(self):
-        """
-        normalize() will accept IPv6 notation and can separate host and port
-        """
-        username = _get_system_username()
-        for description, input, output_ in (
-            ("Full IPv6 address",
-                '2001:DB8:0:0:0:0:0:1', (username, '2001:DB8:0:0:0:0:0:1', '22')),
-            ("IPv6 address in short form",
-                '2001:DB8::1', (username, '2001:DB8::1', '22')),
-            ("IPv6 localhost",
-                '::1', (username, '::1', '22')),
-            ("Square brackets are required to separate non-standard port from IPv6 address",
-                '[2001:DB8::1]:1222', (username, '2001:DB8::1', '1222')),
-            ("Username and IPv6 address",
-                'user@2001:DB8::1', ('user', '2001:DB8::1', '22')),
-            ("Username and IPv6 address with non-standard port",
-                'user@[2001:DB8::1]:1222', ('user', '2001:DB8::1', '1222')),
-        ):
-            eq_.description = "Host-string IPv6 normalization: %s" % description
-            yield eq_, normalize(input), output_
-            del eq_.description
-
     def test_normalization_without_port(self):
         """
         normalize() and join_host_strings() omit port if omit_port given
@@ -111,35 +149,6 @@ class TestNetwork(FabricTest):
         eq_(parts[0], 'user@example.com')
         eq_(parts[1], 'www.example.com')
 
-    def test_normalization_of_empty_input(self):
-        empties = ('', '', '')
-        for description, input in (
-            ("empty string", ''),
-            ("None", None)
-        ):
-            template = "normalize() returns empty strings for %s input"
-            eq_.description = template % description
-            yield eq_, normalize(input), empties
-            del eq_.description
-
-    def test_host_string_denormalization(self):
-        username = _get_system_username()
-        for description, string1, string2 in (
-            ("Sanity check: equal strings remain equal",
-                'localhost', 'localhost'),
-            ("Empty username is same as get_system_username",
-                'localhost:22', username + '@localhost:22'),
-            ("Empty port is same as port 22",
-                'user@localhost', 'user@localhost:22'),
-            ("Both username and port",
-                'localhost', username + '@localhost:22'),
-            ("IPv6 address",
-                '2001:DB8::1', username + '@[2001:DB8::1]:22'),
-        ):
-            eq_.description = "Host-string denormalization: %s" % description
-            yield eq_, denormalize(string1), denormalize(string2)
-            del eq_.description
-
     #
     # Connection caching
     #
@@ -162,19 +171,18 @@ class TestNetwork(FabricTest):
             # Restore connect()
             patched_connect.restore()
 
-    def test_connection_caching(self):
-        for description, host_strings, num_calls in (
-            ("Two different host names, two connections",
-                ('localhost', 'other-system'), 2),
-            ("Same host twice, one connection",
-                ('localhost', 'localhost'), 1),
-            ("Same host twice, different ports, two connections",
-                ('localhost:22', 'localhost:222'), 2),
-            ("Same host twice, different users, two connections",
-                ('user1@localhost', 'user2@localhost'), 2),
-        ):
-            TestNetwork.check_connection_calls.description = description
-            yield TestNetwork.check_connection_calls, host_strings, num_calls
+    @pytest.mark.parametrize('host_strings, num_calls', [
+        pytest.param(('localhost', 'other-system'), 2,
+                     id="Two different host names, two connections"),
+        pytest.param(('localhost', 'localhost'), 1,
+                     id="Same host twice, one connection"),
+        pytest.param(('localhost:22', 'localhost:222'), 2,
+                     id="Same host twice, different ports, two connections"),
+        pytest.param(('user1@localhost', 'user2@localhost'), 2,
+                     id="Same host twice, different users, two connections"),
+    ])
+    def test_connection_caching(self, host_strings, num_calls):
+        TestNetwork.check_connection_calls(host_strings, num_calls)
 
     def test_connection_cache_deletion(self):
         """
@@ -188,11 +196,11 @@ class TestNetwork(FabricTest):
                 # Prime
                 hcc[host_string]
                 # Test
-                ok_(host_string in hcc)
+                assert host_string in hcc
                 # Delete
                 del hcc[host_string]
                 # Test
-                ok_(host_string not in hcc)
+                assert host_string not in hcc
 
 
     #
@@ -234,7 +242,6 @@ class TestNetwork(FabricTest):
             cache[env.host_string]
 
     @with_fakes
-    @raises(NetworkError)
     def test_connect_does_not_prompt_password_when_ssh_raises_channel_exception(self):
         def raise_channel_exception_once(*args, **kwargs):
             if raise_channel_exception_once.should_raise_channel_exception:
@@ -243,19 +250,31 @@ class TestNetwork(FabricTest):
         raise_channel_exception_once.should_raise_channel_exception = True
 
         def generate_fake_client():
-            fake_client = Fake('SSHClient', allows_any_call=True, expect_call=True)
+            # NOTE: no expect_call=True here. This fake stands in for the
+            # SSHClient *instance*, which connect() only ever calls methods on
+            # -- it never invokes the object itself, so an expect_call on it
+            # can never be satisfied. What this test actually asserts is the
+            # times_called(0) on prompt_for_password below.
+            fake_client = Fake('SSHClient', allows_any_call=True)
             fake_client.provides('connect').calls(raise_channel_exception_once)
             return fake_client
 
         fake_ssh = Fake('ssh', allows_any_call=True)
         fake_ssh.provides('SSHClient').calls(generate_fake_client)
-        # We need the real exceptions here to preserve the inheritence structure
+        # We need the real exceptions here to preserve the inheritence
+        # structure -- and every exception class connect() names in an `except`
+        # clause has to be a real one, or evaluating that clause raises
+        # "TypeError: catching classes that do not inherit from BaseException".
         fake_ssh.SSHException = ssh.SSHException
         fake_ssh.ChannelException = ssh.ChannelException
+        fake_ssh.BadHostKeyException = ssh.BadHostKeyException
+        fake_ssh.AuthenticationException = ssh.AuthenticationException
+        fake_ssh.PasswordRequiredException = ssh.PasswordRequiredException
         patched_connect = patch_object('fabric.network', 'ssh', fake_ssh)
         patched_password = patch_object('fabric.network', 'prompt_for_password', Fake('prompt_for_password', callable = True).times_called(0))
         try:
-            connect('user', 'localhost', 22, HostConnectionCache())
+            with pytest.raises(NetworkError):
+                connect('user', 'localhost', 22, HostConnectionCache())
         finally:
             # Restore ssh
             patched_connect.restore()
@@ -687,7 +706,7 @@ class TestSSHConfig(FabricTest):
             ssh_config_path=support("testserver_ssh_config"),
             host_string='testserver',
         ):
-            ok_(run("ls /simple").succeeded)
+            assert run("ls /simple").succeeded
 
 
 class TestKeyFilenames(FabricTest):

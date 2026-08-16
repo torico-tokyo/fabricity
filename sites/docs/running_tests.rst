@@ -34,7 +34,7 @@ Running Tests
 Once your virtualenv is activated (``. env/bin/activate``) & you have the latest
 requirements, running tests is just::
 
-    nosetests tests/
+    pytest
 
 You should **always** run tests on ``master`` (or the release branch you're
 working with) to ensure they're passing before working on your own
@@ -45,4 +45,14 @@ you can also run::
 
     fab test
 
-This adds additional flags which enable running doctests & adds nice coloration.
+which is the same thing with ``-v`` added.
+
+.. note::
+    Output capturing is turned off (``--capture=no`` in ``setup.cfg``). The
+    suite replaces ``sys.stdout``/``sys.stderr`` itself and runs a real SSH
+    server on localhost, neither of which survives pytest's capturing.
+
+The mocking library, `fudge <http://farmdev.com/projects/fudge/index.html>`_,
+is **vendored** under ``tests/_vendor/fudge`` rather than installed -- it is
+Python 2 source that relied on ``2to3`` running at install time, which is no
+longer possible. See ``tests/_vendor/README.md``.
