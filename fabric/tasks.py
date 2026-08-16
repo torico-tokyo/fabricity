@@ -13,45 +13,36 @@ from fabric.job_queue import JobQueue
 from fabric.task_utils import crawl, merge, parse_kwargs
 from fabric.exceptions import NetworkError
 
-if sys.version_info[:2] == (2, 5):
-    # Python 2.5 inspect.getargspec returns a tuple
-    # instead of ArgSpec namedtuple.
-    class ArgSpec(object):
-        def __init__(self, args, varargs, keywords, defaults):
-            self.args = args
-            self.varargs = varargs
-            self.keywords = keywords
-            self.defaults = defaults
-            self._tuple = (args, varargs, keywords, defaults)
-
-        def __getitem__(self, idx):
-            return self._tuple[idx]
-
-    def patched_get_argspec(func):
-        return ArgSpec(*inspect._getargspec(func))
-
-    inspect._getargspec = inspect.getargspec
-    inspect.getargspec = patched_get_argspec
-
-
 def get_task_details(task):
     details = [
         textwrap.dedent(task.__doc__)
         if task.__doc__
         else 'No docstring provided']
-    argspec = inspect.getargspec(task)
+    # inspect.getargspec() was removed in Python 3.11. getfullargspec() keeps
+    # the same meaning for args and defaults, and those two are all we use here.
+    argspec = inspect.getfullargspec(task)
 
     default_args = [] if not argspec.defaults else argspec.defaults
     num_default_args = len(default_args)
     args_without_defaults = argspec.args[:len(argspec.args) - num_default_args]
     args_with_defaults = argspec.args[-1 * num_default_args:]
 
+    # Show keyword-only arguments (def task(*, env, force=False)) as well.
+    # getargspec() raised ValueError for such functions, so they could never be
+    # listed before, even though fab can pass them as task:env=stg.
+    kwonly_defaults = argspec.kwonlydefaults or {}
+    kwonly_args = [
+        '%s=%r' % (arg, kwonly_defaults[arg])
+        if arg in kwonly_defaults else arg
+        for arg in argspec.kwonlyargs
+    ]
+
     details.append('Arguments: %s' % (
         ', '.join(
             args_without_defaults + [
                 '%s=%r' % (arg, default)
                 for arg, default in zip(args_with_defaults, default_args)
-            ])
+            ] + kwonly_args)
     ))
 
     return '\n'.join(details)
