@@ -832,3 +832,110 @@ class TestKeyFromEnv(FabricTest):
             pkey = key_from_env('secret')
         assert pkey is not None
         eq_(pkey.__class__.__name__, expected)
+
+
+class TestDisabledAlgorithms(FabricTest):
+    """
+    env.disabled_algorithms is handed to paramiko so 3des-cbc is not offered.
+    """
+    @staticmethod
+    def _all_connect_kwargs(seek_gateway=False, **extra_settings):
+        """
+        Run connect() against a stand-in SSHClient and return the kwargs of
+        every connect() call it made, in order.
+
+        With a gateway configured there are two: the gateway itself first,
+        then the real target.
+        """
+        calls = []
+
+        class RecordingClient(object):
+            def load_system_host_keys(self, *args, **kwargs):
+                pass
+
+            def set_missing_host_key_policy(self, *args, **kwargs):
+                pass
+
+            def connect(self, **kwargs):
+                calls.append(kwargs)
+
+            def get_transport(self):
+                # Only reached on the gateway path, via direct_tcpip().
+                return Fake('transport').provides('open_channel').returns(
+                    Fake('channel'))
+
+        real = fabric.network.ssh.SSHClient
+        fabric.network.ssh.SSHClient = RecordingClient
+        try:
+            with settings(hide('everything'), use_ssh_config=False,
+                          **extra_settings):
+                connect('user', 'localhost', 22, HostConnectionCache(),
+                        seek_gateway=seek_gateway)
+        finally:
+            fabric.network.ssh.SSHClient = real
+        return calls
+
+    @classmethod
+    def _connect_kwargs(cls, **extra_settings):
+        return cls._all_connect_kwargs(**extra_settings)[-1]
+
+    def test_3des_is_disabled_by_default(self):
+        kwargs = self._connect_kwargs()
+        eq_(kwargs['disabled_algorithms'], {'ciphers': ['3des-cbc']})
+
+    def test_can_be_overridden_via_env(self):
+        """
+        Old gear with nothing better must remain reachable without a patch.
+        """
+        kwargs = self._connect_kwargs(disabled_algorithms={})
+        eq_(kwargs['disabled_algorithms'], {})
+
+    def test_gateway_connection_gets_it_too(self):
+        """
+        Gateways are reached by connect() calling itself, so the setting has
+        to land on both hops. Pinned down so a future rewrite of that path
+        cannot quietly leave the gateway offering 3des-cbc.
+        """
+        calls = self._all_connect_kwargs(seek_gateway=True,
+                                         gateway='gw.example.com')
+        eq_(len(calls), 2)  # gateway, then target
+        for kwargs in calls:
+            eq_(kwargs['disabled_algorithms'], {'ciphers': ['3des-cbc']})
+
+    def test_cbc_is_left_enabled(self):
+        """
+        Dropping aes*-cbc too is a separate decision; make it explicit.
+        """
+        disabled = self._connect_kwargs()['disabled_algorithms']
+        for name in ('aes128-cbc', 'aes192-cbc', 'aes256-cbc'):
+            assert name not in disabled['ciphers']
+
+    def test_setting_actually_removes_3des_from_what_paramiko_offers(self):
+        """
+        End-to-end on the paramiko side: the value we pass really does drop
+        3des-cbc from the cipher list a Transport will negotiate with.
+
+        Checked against Transport.preferred_ciphers (the filtered property),
+        not _preferred_ciphers (the raw class attribute, which is left
+        untouched). Also guards the premise: if paramiko ever stops offering
+        3des-cbc by default, this setting becomes dead weight.
+        """
+        import socket
+
+        ours, theirs = socket.socketpair()
+        try:
+            disabled = ssh.Transport(
+                ours, disabled_algorithms=env.disabled_algorithms)
+            default = ssh.Transport(theirs)
+            assert '3des-cbc' in default.preferred_ciphers, \
+                "paramiko no longer offers 3des-cbc; revisit this setting"
+            assert '3des-cbc' not in disabled.preferred_ciphers
+            # Nothing else should have been dropped along the way.
+            eq_(
+                set(default.preferred_ciphers)
+                - set(disabled.preferred_ciphers),
+                {'3des-cbc'},
+            )
+        finally:
+            ours.close()
+            theirs.close()

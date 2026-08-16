@@ -486,6 +486,10 @@ def connect(user, host, port, cache, seek_gateway=True):
                 allow_agent=not env.no_agent,
                 look_for_keys=not env.no_keys,
                 sock=sock,
+                # Declines 3des-cbc by default; see env.disabled_algorithms in
+                # fabric/state.py. Gateway connections come back through this
+                # same function, so they are covered too.
+                disabled_algorithms=env.disabled_algorithms,
             )
             for suffix in ('auth', 'deleg_creds', 'kex'):
                 name = "gss_" + suffix
