@@ -8,7 +8,8 @@ from fudge import (Fake, patch_object, with_patched_object, patched_context,
 
 from fabric.context_managers import settings, hide, show
 from fabric.network import (HostConnectionCache, join_host_strings, normalize,
-                            denormalize, key_filenames, ssh, NetworkError, connect)
+                            denormalize, key_filenames, key_from_env, ssh,
+                            NetworkError, connect)
 import fabric.network  # So I can call patch_object correctly. Sigh.
 from fabric.state import env, output, _get_system_username
 from fabric.operations import run, sudo, prompt
@@ -749,3 +750,85 @@ class TestKeyFilenames(FabricTest):
             with settings(key_filename=["bizbaz.pub", "whatever.pub"]):
                 expected = ["bizbaz.pub", "whatever.pub", "foobar.pub"]
                 eq_(key_filenames(), expected)
+
+
+def _private_key_text(kind, passphrase=None):
+    """
+    Generate a fresh private key of ``kind`` as OpenSSH-format PEM text.
+
+    Generated rather than checked in so the suite never carries a real key,
+    and so each key type is exercised as paramiko would actually receive it.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+
+    if kind == 'ed25519':
+        key = ed25519.Ed25519PrivateKey.generate()
+    elif kind == 'ecdsa':
+        key = ec.generate_private_key(ec.SECP256R1())
+    elif kind == 'rsa':
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    else:
+        raise ValueError(kind)
+    if passphrase is None:
+        encryption = serialization.NoEncryption()
+    else:
+        encryption = serialization.BestAvailableEncryption(
+            passphrase.encode('utf-8'))
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.OpenSSH,
+        encryption,
+    ).decode('ascii')
+
+
+class TestKeyFromEnv(FabricTest):
+    """
+    env.key (a private key passed as text) is turned into a paramiko key.
+    """
+    @pytest.mark.parametrize('kind, expected', [
+        # ed25519/ecdsa are regression cases: the candidate list used to be
+        # (RSAKey, DSSKey) only, so these keys could not be loaded at all.
+        ('ed25519', 'Ed25519Key'),
+        ('ecdsa', 'ECDSAKey'),
+        ('rsa', 'RSAKey'),
+    ])
+    def test_loads_each_supported_key_type(self, kind, expected):
+        with settings(key=_private_key_text(kind)):
+            pkey = key_from_env()
+        assert pkey is not None, "%s key failed to load" % kind
+        eq_(pkey.__class__.__name__, expected)
+
+    def test_returns_none_when_env_key_unset(self):
+        # FabricTest's env has no 'key' at all; nothing to load.
+        assert 'key' not in env
+        assert key_from_env() is None
+
+    def test_returns_none_for_garbage(self):
+        with settings(key="not a key at all"):
+            assert key_from_env() is None
+
+    # All three types are checked because the whole point of the candidate
+    # list is that each is parsed by a different class, and paramiko does not
+    # word the "encrypted" error identically across them.
+    @pytest.mark.parametrize('kind', ['ed25519', 'ecdsa', 'rsa'])
+    def test_encrypted_key_raises_so_caller_can_prompt(self, kind):
+        """
+        connect() catches PasswordRequiredException to re-prompt; swallowing it
+        here would silently pass pkey=None instead.
+        """
+        with settings(key=_private_key_text(kind, passphrase='secret')):
+            with pytest.raises(ssh.PasswordRequiredException):
+                key_from_env()
+
+    @pytest.mark.parametrize('kind, expected', [
+        ('ed25519', 'Ed25519Key'),
+        ('ecdsa', 'ECDSAKey'),
+        ('rsa', 'RSAKey'),
+    ])
+    def test_encrypted_key_loads_once_passphrase_is_supplied(self, kind,
+                                                             expected):
+        with settings(key=_private_key_text(kind, passphrase='secret')):
+            pkey = key_from_env('secret')
+        assert pkey is not None
+        eq_(pkey.__class__.__name__, expected)

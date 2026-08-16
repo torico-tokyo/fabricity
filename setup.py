@@ -25,10 +25,12 @@ For more information, please see the Fabric website or execute ``fab --help``.
 # The paramiko lower bound is 3.4.1. Releases up to 3.4.0 emit a
 # CryptographyDeprecationWarning (TripleDES) on import (verified with 2.x,
 # 3.0.0, 3.3.1 and 3.4.0), and will stop working once cryptography 48 drops
-# TripleDES; 3.4.1 fixed that import. The upper bound is there because
-# paramiko 4.0 removed DSS/DSA support along with paramiko.dsskey, which
-# fabric/network.py still imports.
-install_requires = ['paramiko>=3.4.1,<4.0', 'six>=1.10.0']
+# TripleDES; 3.4.1 fixed that import.
+#
+# There is no upper bound: paramiko 4.0 removed DSS/DSA support along with
+# paramiko.dsskey, and fabric/network.py no longer imports it. The rest of the
+# paramiko API this package uses is unchanged through 5.0.
+install_requires = ['paramiko>=3.4.1', 'six>=1.10.0']
 
 
 setup(
