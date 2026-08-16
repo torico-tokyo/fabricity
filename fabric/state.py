@@ -342,6 +342,18 @@ env = _AttributeDict({
     'cwd': '',  # Must be empty string, not None, for concatenation purposes
     'dedupe_hosts': True,
     'default_port': default_port,
+    # Handed straight to paramiko's SSHClient.connect(). 3des-cbc is refused
+    # by default because Triple DES has a 64-bit block size and is therefore
+    # open to the Sweet32 birthday attack (CVE-2016-2183), which long-lived,
+    # high-volume SSH sessions are a good fit for; NIST SP 800-131A Rev.2 also
+    # disallowed TDEA for encryption at the end of 2023. paramiko still offers
+    # it (checked in 3.4.1 and 5.0.0), so declining it has to be done here.
+    #
+    # Override (e.g. to talk to old gear that has nothing better) with
+    # env.disabled_algorithms = {} or None. aes*-cbc is deliberately left
+    # enabled: CBC is not preferred either, but dropping it breaks far more
+    # real devices, so that is a separate decision.
+    'disabled_algorithms': {'ciphers': ['3des-cbc']},
     'eagerly_disconnect': False,
     'echo_stdin': True,
     'effective_roles': [],

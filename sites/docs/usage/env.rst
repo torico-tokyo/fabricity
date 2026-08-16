@@ -276,6 +276,36 @@ host key is actually valid (e.g. cloud servers such as EC2.)
 .. seealso:: :option:`--disable-known-hosts <-D>`, :doc:`ssh`
 
 
+.. _disabled-algorithms:
+
+``disabled_algorithms``
+-----------------------
+
+**Default:** ``{'ciphers': ['3des-cbc']}``
+
+Passed straight through to Paramiko's ``SSHClient.connect``, naming algorithms
+that should not be offered when negotiating a connection.
+
+``3des-cbc`` is refused by default. Triple DES has a 64-bit block size, which
+makes it subject to the Sweet32 birthday attack (CVE-2016-2183) -- long-lived,
+high-volume SSH sessions being a good fit for that attack -- and NIST SP
+800-131A Rev.2 disallowed TDEA for encryption at the end of 2023. Paramiko
+still offers it, so it has to be declined here.
+
+In practice this rarely changes anything: a modern OpenSSH does not enable
+``3des-cbc`` by default either, so it would only have been selected against a
+server that offers nothing better. To reach such a server, clear the setting::
+
+    env.disabled_algorithms = {}
+
+Note that ``aes128-cbc`` / ``aes192-cbc`` / ``aes256-cbc`` are deliberately
+left enabled. CBC mode is not preferred either, but disabling it breaks
+considerably more real-world equipment, so that is treated as a separate
+decision.
+
+.. seealso:: :doc:`ssh`
+
+
 .. _eagerly-disconnect:
 
 ``eagerly_disconnect``
