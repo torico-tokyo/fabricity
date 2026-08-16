@@ -18,9 +18,8 @@ def get_task_details(task):
         textwrap.dedent(task.__doc__)
         if task.__doc__
         else 'No docstring provided']
-    # inspect.getargspec() は Python 3.11 で削除された。
-    # getfullargspec() は args / defaults の意味が同じで、
-    # ここで使っているのはその 2 つだけ
+    # inspect.getargspec() was removed in Python 3.11. getfullargspec() keeps
+    # the same meaning for args and defaults, and those two are all we use here.
     argspec = inspect.getfullargspec(task)
 
     default_args = [] if not argspec.defaults else argspec.defaults
@@ -28,9 +27,9 @@ def get_task_details(task):
     args_without_defaults = argspec.args[:len(argspec.args) - num_default_args]
     args_with_defaults = argspec.args[-1 * num_default_args:]
 
-    # キーワード専用引数 (def task(*, env, force=False)) も表示する。
-    # getargspec はこの形の関数に ValueError を投げていたので今まで出せなかったが、
-    # fab は task:env=stg の形で値を渡せるので、引数一覧に出す必要がある
+    # Show keyword-only arguments (def task(*, env, force=False)) as well.
+    # getargspec() raised ValueError for such functions, so they could never be
+    # listed before, even though fab can pass them as task:env=stg.
     kwonly_defaults = argspec.kwonlydefaults or {}
     kwonly_args = [
         '%s=%r' % (arg, kwonly_defaults[arg])
