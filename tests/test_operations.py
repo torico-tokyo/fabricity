@@ -1,12 +1,13 @@
 from __future__ import with_statement
 
+from functools import wraps
 import os
 import re
 import shutil
 import six
 import sys
 
-from nose.tools import ok_, raises
+import pytest
 from fudge import patched_context, with_fakes, Fake
 from fudge.inspector import arg as fudge_arg
 from mock_streams import mock_streams
@@ -234,23 +235,31 @@ def test_sudo_prefix_with_user_and_group():
     )
 
 
+# NOTE: the expected values reference env.shell, so they are built inside the
+# test rather than in the @parametrize list (which is evaluated at collection
+# time, before @with_settings has applied).
+@pytest.mark.parametrize('shell, use_sudo_prefix', [
+    pytest.param(True, False, id="shell=True, sudo_prefix=None"),
+    pytest.param(True, True, id="shell=True, sudo_prefix=string"),
+    pytest.param(False, False, id="shell=False, sudo_prefix=None"),
+    pytest.param(False, True, id="shell=False, sudo_prefix=string"),
+])
 @with_settings(use_shell=True)
-def test_shell_wrap():
+def test_shell_wrap(shell, use_sudo_prefix):
     prefix = "prefix"
     command = "command"
-    for description, shell, sudo_prefix, result in (
-        ("shell=True, sudo_prefix=None",
-            True, None, '%s "%s"' % (env.shell, command)),
-        ("shell=True, sudo_prefix=string",
-            True, prefix, prefix + ' %s "%s"' % (env.shell, command)),
-        ("shell=False, sudo_prefix=None",
-            False, None, command),
-        ("shell=False, sudo_prefix=string",
-            False, prefix, prefix + " " + command),
-    ):
-        eq_.description = "_shell_wrap: %s" % description
-        yield eq_, _shell_wrap(command, shell_escape=True, shell=shell, sudo_prefix=sudo_prefix), result
-        del eq_.description
+    sudo_prefix = prefix if use_sudo_prefix else None
+    if shell:
+        result = '%s "%s"' % (env.shell, command)
+    else:
+        result = command
+    if use_sudo_prefix:
+        result = prefix + " " + result
+    eq_(
+        _shell_wrap(command, shell_escape=True, shell=shell,
+                    sudo_prefix=sudo_prefix),
+        result
+    )
 
 
 @with_settings(use_shell=True)
@@ -389,7 +398,18 @@ class TestMultipleOKReturnCodes(FabricTest):
 
 
 slow_server = server(responses={'slow': ['', '', 0, 3]})
-slow = lambda x: slow_server(raises(CommandTimeout)(x))
+
+
+def slow(func):
+    """
+    Decorator for tests which must time out against the deliberately slow
+    test server, i.e. whose body is expected to raise ``CommandTimeout``.
+    """
+    @wraps(func)
+    def expects_timeout(*args, **kwargs):
+        with pytest.raises(CommandTimeout):
+            func(*args, **kwargs)
+    return slow_server(expects_timeout)
 
 class TestRun(FabricTest):
     """
@@ -460,7 +480,6 @@ class TestFileTransfers(FabricTest):
         """
         get('file') should work when the remote path contains spaces
         """
-        # from nose.tools import set_trace; set_trace()
         with hide('everything'):
             with cd('/base/dir with spaces'):
                 eq_(get('file', self.path()), [self.path('file')])
@@ -883,12 +902,12 @@ class TestFileTransfers(FabricTest):
         eq_(pointer, fake_file.tell())
 
     @server()
-    @raises(ValueError)
     def test_put_should_raise_exception_for_nonexistent_local_path(self):
         """
         put(nonexistent_file) should raise a ValueError
         """
-        put('thisfiledoesnotexist', '/tmp')
+        with pytest.raises(ValueError):
+            put('thisfiledoesnotexist', '/tmp')
 
     @server()
     def test_put_returns_list_of_remote_paths(self):
@@ -1093,26 +1112,21 @@ class TestFileTransfers(FabricTest):
 # For now, simply test to make sure local() does not raise exceptions with
 # various settings enabled/disabled.
 
-def test_local_output_and_capture():
-    for capture in (True, False):
-        for stdout in (True, False):
-            for stderr in (True, False):
-                hides, shows = ['running'], []
-                if stdout:
-                    hides.append('stdout')
-                else:
-                    shows.append('stdout')
-                if stderr:
-                    hides.append('stderr')
-                else:
-                    shows.append('stderr')
-                with nested(hide(*hides), show(*shows)):
-                    d = "local(): capture: %r, stdout: %r, stderr: %r" % (
-                        capture, stdout, stderr
-                    )
-                    local.description = d
-                    yield local, "echo 'foo' >/dev/null", capture
-                    del local.description
+@pytest.mark.parametrize('capture', (True, False))
+@pytest.mark.parametrize('stdout', (True, False))
+@pytest.mark.parametrize('stderr', (True, False))
+def test_local_output_and_capture(capture, stdout, stderr):
+    hides, shows = ['running'], []
+    if stdout:
+        hides.append('stdout')
+    else:
+        shows.append('stdout')
+    if stderr:
+        hides.append('stderr')
+    else:
+        shows.append('stderr')
+    with nested(hide(*hides), show(*shows)):
+        local("echo 'foo' >/dev/null", capture)
 
 
 class TestRunSudoReturnValues(FabricTest):
@@ -1136,4 +1150,4 @@ class TestRunSudoReturnValues(FabricTest):
         with settings(hide('everything'), warn_only=True, use_shell=True):
             # Slightly flexible test, we're not testing the actual construction
             # here, just that this attribute exists.
-            ok_(env.shell in run("ls /").real_command)
+            assert env.shell in run("ls /").real_command

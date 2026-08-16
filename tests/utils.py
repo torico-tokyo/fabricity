@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from fudge.patcher import with_patched_object
-from functools import partial
+from functools import partial, wraps
 import copy
 import getpass
 import os
@@ -10,8 +10,9 @@ import six
 import sys
 import tempfile
 
+import pytest
+
 from fudge import Fake, patched_context, clear_expectations
-from nose.tools import raises
 
 from fabric.state import env, output
 from fabric.sftp import SFTP
@@ -23,16 +24,21 @@ from mock_streams import mock_streams
 
 class FabricTest(object):
     """
-    Nose-oriented test runner which wipes state.env and provides file helpers.
+    Base class which wipes state.env between tests and provides file helpers.
     """
-    def setup(self):
+    def setup_method(self, method):
         # Clear Fudge mock expectations
         clear_expectations()
         # Copy env, output for restoration in teardown
         self.previous_env = copy.deepcopy(env)
         # Deepcopy doesn't work well on AliasDicts; but they're only one layer
         # deep anyways, so...
-        self.previous_output = output.items()
+        # NOTE: list() is required. On Python 2 dict.items() returned a list
+        # (i.e. a snapshot); on Python 3 it returns a live view, so without
+        # the copy this "saved" state tracks every change made during the test
+        # and teardown_method restores nothing. Tests which flip output flags
+        # (e.g. TestNetwork._prompt_display) then leak into later tests.
+        self.previous_output = list(output.items())
         # Allow hooks from subclasses here for setting env vars (so they get
         # purged correctly in teardown())
         self.env_setup()
@@ -51,7 +57,7 @@ class FabricTest(object):
         # shell wrapping everywhere.
         env.use_shell = False
 
-    def teardown(self):
+    def teardown_method(self, method):
         env.clear() # In case tests set env vars that didn't exist previously
         env.update(self.previous_env)
         output.update(self.previous_output)
@@ -185,7 +191,21 @@ def path_prefix(module):
 
 
 def aborts(func):
-    return raises(SystemExit)(mock_streams('stderr')(func))
+    """
+    Decorator declaring that the wrapped test is expected to call ``abort()``.
+
+    The whole test body must raise ``SystemExit``; stderr is captured so the
+    abort message does not leak into the test output. This replaces nose's
+    ``@raises(SystemExit)``, and keeps the same "anywhere in the body" scope
+    that the decorator form had.
+    """
+    inner = mock_streams('stderr')(func)
+
+    @wraps(inner)
+    def wrapper(*args, **kwargs):
+        with pytest.raises(SystemExit):
+            inner(*args, **kwargs)
+    return wrapper
 
 
 def _patched_input(func, fake):

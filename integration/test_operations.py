@@ -23,12 +23,12 @@ class TestOperations(Integration):
     dirpath = "/tmp/whatever/bin"
     not_owned = "/tmp/notmine"
 
-    def setup(self):
-        super(TestOperations, self).setup()
+    def setup_method(self, method):
+        super(TestOperations, self).setup_method(method)
         run("mkdir -p %s" % " ".join([self.dirpath, self.not_owned]))
 
-    def teardown(self):
-        super(TestOperations, self).teardown()
+    def teardown_method(self, method):
+        super(TestOperations, self).teardown_method(method)
         # Revert any chown crap from put sudo tests
         sudo("chown %s ." % env.user)
         # Nuke to prevent bleed

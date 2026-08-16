@@ -1,4 +1,4 @@
-from nose.tools import eq_
+from utils import eq_
 
 from fabric.state import _AliasDict
 

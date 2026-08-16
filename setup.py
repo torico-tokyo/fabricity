@@ -42,8 +42,12 @@ setup(
     maintainer_email='developer+pypi@torico-tokyo.com',
     url='https://github.com/torico-tokyo/fabricity',
     packages=find_packages(),
-    test_suite='nose.collector',
-    tests_require=['nose<2.0', 'fudge<1.0', 'jinja2<3.0'],
+    # NOTE: fudge (the suite's mocking library) is deliberately absent -- it is
+    # not installable on any supported interpreter and is vendored under
+    # tests/_vendor/fudge instead. See tests/_vendor/README.md.
+    # jinja2 must NOT be pinned <3.0: jinja2 2.x imports
+    # markupsafe.soft_unicode, which markupsafe removed in 2.1.
+    tests_require=['pytest>=7.0', 'jinja2'],
     install_requires=install_requires,
     entry_points={
         'console_scripts': [

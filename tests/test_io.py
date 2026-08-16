@@ -2,7 +2,7 @@
 import sys
 from io import BytesIO
 
-from nose.tools import eq_
+from utils import eq_
 
 from fabric.io import OutputLooper
 from fabric.context_managers import hide, settings

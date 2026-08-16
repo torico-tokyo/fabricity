@@ -22,12 +22,12 @@ def escape(path):
 
 
 class FileCleaner(Integration):
-    def setup(self):
+    def setup_method(self, method):
         self.local = []
         self.remote = []
 
-    def teardown(self):
-        super(FileCleaner, self).teardown()
+    def teardown_method(self, method):
+        super(FileCleaner, self).teardown_method(method)
         for created in self.local:
             os.unlink(created)
         for created in self.remote:
