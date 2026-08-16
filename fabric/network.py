@@ -235,20 +235,39 @@ def key_from_env(passphrase=None):
             # the process must by definition have access to the key value,
             # so only serious problem is if they're logging the output.
             sys.stderr.write("Trying to honor in-memory key %r\n" % env.key)
-        for pkey_class in (ssh.rsakey.RSAKey, ssh.dsskey.DSSKey):
+        # DSSKey is deliberately gone, and this is a breaking change for
+        # anyone still handing a DSA key to env.key: paramiko 4.0 removed
+        # DSS/DSA support along with the paramiko.dsskey module, so keeping it
+        # would mean pinning paramiko below 4. It is not reinstated
+        # conditionally on paramiko 3 because ssh-dss is 1024-bit/SHA-1, has
+        # been off by default in OpenSSH since 7.0 and was dropped outright in
+        # 9.8; a server would have to be configured specially to still accept
+        # one.
+        #
+        # Ed25519 and ECDSA are tried in its place. Neither was ever in this
+        # list, so until now an Ed25519 key handed over via env.key simply
+        # failed to load.
+        for pkey_class in (ssh.Ed25519Key, ssh.ECDSAKey, ssh.RSAKey):
             if output.debug:
                 sys.stderr.write("Trying to load it as %s\n" % pkey_class)
             try:
                 return pkey_class.from_private_key(six.StringIO(env.key), passphrase)
-            except Exception as e:
-                # File is valid key, but is encrypted: raise it, this will
-                # cause cxn loop to prompt for passphrase & retry
-                if 'Private key file is encrypted' in str(e):
-                    raise
+            except ssh.PasswordRequiredException:
+                # File is a valid key, but is encrypted: raise it, this will
+                # cause cxn loop to prompt for passphrase & retry.
+                #
+                # Matched on the exception type rather than on the message
+                # text, which paramiko does not capitalise consistently --
+                # Ed25519Key says "Private key file is encrypted" while
+                # ECDSAKey and RSAKey say "private". The old check only
+                # accepted the capitalised form, so an encrypted key that
+                # reached RSAKey first was swallowed below and this function
+                # returned None instead of prompting.
+                raise
+            except Exception:
                 # Otherwise, it probably means it wasn't a valid key of this
                 # type, so try the next one.
-                else:
-                    pass
+                pass
 
 
 def parse_host_string(host_string):
