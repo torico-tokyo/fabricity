@@ -8,9 +8,23 @@ pytest>=7.0
 # setuptools running 2to3 at install time, and both use_2to3 (setuptools 58)
 # and lib2to3 (Python 3.13) are gone. A converted copy lives in
 # tests/_vendor/fudge; see tests/_vendor/README.md.
-# Template rendering, exercised by contrib.files.upload_template(use_jinja=True)
+# Template rendering, exercised by contrib.files.upload_template(use_jinja=True).
+# Deliberately unpinned: jinja2 2.x imports markupsafe.soft_unicode, which
+# markupsafe removed in 2.1, and jinja2 2.x's own regexes are rejected by
+# Python 3.11+. The test suite is verified against jinja2 3.1.
 jinja2
-# Documentation generation
+# Documentation generation.
+#
+# WARNING: these pins are stale and the docs build does not work on the Python
+# versions the test suite now targets. Sphinx 1.3.4 (2016) is broken by its own
+# source on Python 3.11+ -- sphinx/domains/cpp.py does
+# `re.compile(r'\s+(?u)')`, and an inline global flag that is not at the start
+# of the pattern became an error in 3.11. No jinja2/markupsafe combination
+# fixes that; Sphinx itself has to be upgraded (which also means revisiting the
+# releases/invoke/invocations pins and sites/*/conf.py). Tracked separately --
+# it is out of scope for the test-runner migration, and nothing runs these
+# today (the .travis.yml below is inherited from upstream Fabric3; this fork
+# has no live CI).
 Sphinx==1.3.4
 releases>=1.2.0,<2
 invoke>=0.12,<0.13

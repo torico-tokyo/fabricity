@@ -1,5 +1,6 @@
 from __future__ import with_statement
 
+import shlex
 import sys
 from unittest import TestCase
 
@@ -99,10 +100,11 @@ def test_abort_message_only_printed_once():
     with quiet():
         # sys.executable rather than "python": local() shells out via /bin/sh,
         # which has no notion of an activated virtualenv, so a bare "python"
-        # resolves to whatever is on PATH (often nothing at all).
+        # resolves to whatever is on PATH (often nothing at all). Quoted
+        # because the interpreter may live under a path containing spaces.
         result = local(
             "%s -m fabric.__main__ -f tests/support/aborts.py kaboom"
-            % sys.executable,
+            % shlex.quote(sys.executable),
             capture=True)
     # When error in #1318 is present, this has an extra "It burns!" at end of
     # stderr string.
