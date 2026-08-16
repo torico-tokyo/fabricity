@@ -45,7 +45,18 @@ you can also run::
 
     fab test
 
-which is the same thing with ``-v`` added.
+which is the same thing with ``-v`` added, followed by a second pass over
+``fabric`` itself to pick up the handful of doctests living outside
+``testpaths``.
+
+To run the integration suite (which needs passwordless SSH to the host you
+name) use::
+
+    fab -H localhost test:integration
+
+``fab test`` runs pytest *inside* the ``fab`` process rather than shelling out,
+because ``-H`` sets the target host in that process only and the integration
+tests connect using it directly.
 
 .. note::
     Output capturing is turned off (``--capture=no`` in ``setup.cfg``). The
