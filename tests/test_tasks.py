@@ -1,7 +1,7 @@
 from __future__ import with_statement
 
-from fudge import Fake, patched_context, with_fakes
 import unittest
+from unittest import mock
 
 import multiprocessing
 import pytest
@@ -201,37 +201,59 @@ def dict_contains(superset, subset):
         eq_(superset[key], value)
 
 
+def _task_prototype(*args, **kwargs):
+    """
+    Shape for fake_task()'s mocks; see there for why the spec matters.
+    """
+
+
+def fake_task(**kwargs):
+    """
+    Return a callable stand-in for a task function.
+
+    NOTE: a bare Mock will not do. execute() and WrappedCallableTask probe the
+    callable with getattr for ``name``, ``hosts``, ``roles`` and friends,
+    expecting a plain function not to have them. Mock auto-creates every
+    attribute, so those probes would all succeed and hand fabric Mocks where
+    it wants a string or a list. Speccing against a plain function makes the
+    absent attributes raise AttributeError, as a real task function does.
+    """
+    task = mock.Mock(spec=_task_prototype, **kwargs)
+    task.__name__ = 'fake_task'
+    return task
+
+
 class TestExecute(FabricTest):
-    @with_fakes
     def test_calls_task_function_objects(self):
         """
         should execute the passed-in function object
         """
-        execute(Fake(callable=True, expect_call=True))
+        task = fake_task()
+        execute(task)
+        task.assert_called_once()
 
-    @with_fakes
     def test_should_look_up_task_name(self):
         """
         should also be able to handle task name strings
         """
         name = 'task1'
-        commands = {name: Fake(callable=True, expect_call=True)}
-        with patched_context(fabric.state, 'commands', commands):
+        task = fake_task()
+        with mock.patch.object(fabric.state, 'commands', {name: task}):
             execute(name)
+        task.assert_called_once()
 
-    @with_fakes
     def test_should_handle_name_of_Task_object(self):
         """
         handle corner case of Task object referrred to by name
         """
         name = 'task2'
         class MyTask(Task):
-            run = Fake(callable=True, expect_call=True)
+            run = mock.Mock()
         mytask = MyTask()
         mytask.name = name
-        commands = {name: mytask}
-        with patched_context(fabric.state, 'commands', commands):
+        with mock.patch.object(fabric.state, 'commands', {name: mytask}):
             execute(name)
+        mytask.run.assert_called_once()
 
     @aborts
     def test_should_abort_if_task_name_not_found(self):
@@ -249,18 +271,14 @@ class TestExecute(FabricTest):
         execute('thisisnotavalidtaskname')
         del env['skip_unknown_tasks']
 
-    @with_fakes
     def test_should_pass_through_args_kwargs(self):
         """
         should pass in any additional args, kwargs to the given task.
         """
-        task = (
-            Fake(callable=True, expect_call=True)
-            .with_args('foo', biz='baz')
-        )
+        task = fake_task()
         execute(task, 'foo', biz='baz')
+        task.assert_called_once_with('foo', biz='baz')
 
-    @with_fakes
     def test_should_honor_hosts_kwarg(self):
         """
         should use hosts kwarg to set run list
@@ -271,9 +289,10 @@ class TestExecute(FabricTest):
         # Side-effect which asserts the value of env.host_string when it runs
         def host_string():
             eq_(env.host_string, hostlist.pop(0))
-        task = Fake(callable=True, expect_call=True).calls(host_string)
+        task = fake_task(side_effect=host_string)
         with hide('everything'):
             execute(task, hosts=hosts)
+        eq_(len(hostlist) + task.call_count, 3)
 
     def test_should_honor_hosts_decorator(self):
         """
@@ -300,7 +319,6 @@ class TestExecute(FabricTest):
         with settings(hide('running'), roledefs=roledefs):
             execute(task)
 
-    @with_fakes
     def test_should_set_env_command_to_string_arg(self):
         """
         should set env.command to any string arg, if given
@@ -308,11 +326,11 @@ class TestExecute(FabricTest):
         name = "foo"
         def command():
             eq_(env.command, name)
-        task = Fake(callable=True, expect_call=True).calls(command)
-        with patched_context(fabric.state, 'commands', {name: task}):
+        task = fake_task(side_effect=command)
+        with mock.patch.object(fabric.state, 'commands', {name: task}):
             execute(name)
+        task.assert_called_once()
 
-    @with_fakes
     def test_should_set_env_command_to_name_attr(self):
         """
         should set env.command to TaskSubclass.name if possible
@@ -320,14 +338,13 @@ class TestExecute(FabricTest):
         name = "foo"
         def command():
             eq_(env.command, name)
-        task = (
-            Fake(callable=True, expect_call=True)
-            .has_attr(name=name)
-            .calls(command)
-        )
+        task = fake_task(side_effect=command)
+        # NOTE: Mock treats `name` passed to the constructor as its own repr
+        # name, so the attribute execute() reads has to be set afterwards.
+        task.name = name
         execute(task)
+        task.assert_called_once()
 
-    @with_fakes
     def test_should_set_all_hosts(self):
         """
         should set env.all_hosts to its derived host list
@@ -338,11 +355,12 @@ class TestExecute(FabricTest):
         exclude_hosts = ['a']
         def command():
             eq_(set(env.all_hosts), set(['b', 'c', 'd']))
-        task = Fake(callable=True, expect_call=True).calls(command)
+        task = fake_task(side_effect=command)
         with settings(hide('everything'), roledefs=roledefs):
             execute(
                 task, hosts=hosts, roles=roles, exclude_hosts=exclude_hosts
             )
+        assert task.call_count
 
     @mock_streams('stdout')
     def test_should_print_executing_line_per_host(self):
@@ -435,16 +453,16 @@ class TestExecute(FabricTest):
             retval = execute(task)
         eq_(retval, {'127.0.0.1:2200': '2200', '127.0.0.1:2201': '2201'})
 
-    @with_fakes
     def test_should_work_with_Task_subclasses(self):
         """
         should work for Task subclasses, not just WrappedCallableTask
         """
         class MyTask(Task):
             name = "mytask"
-            run = Fake(callable=True, expect_call=True)
+            run = mock.Mock()
         mytask = MyTask()
         execute(mytask)
+        mytask.run.assert_called_once()
 
     @server(port=2200)
     @server(port=2201)
@@ -631,7 +649,7 @@ class TestTaskDetails(unittest.TestCase):
             For reals.
             """
         try:
-            with patched_context(fabric.state, 'commands', {'mytask': mytask}):
+            with mock.patch.object(fabric.state, 'commands', {'mytask': mytask}):
                 display_command('mytask')
         except SystemExit: # ugh
             pass

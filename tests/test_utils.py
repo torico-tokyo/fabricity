@@ -4,15 +4,11 @@ import shlex
 import sys
 from unittest import TestCase
 
-from fudge import Fake, clear_expectations, patched_context, with_fakes
-# NOTE: with_patched_object() works on plain modules/classes but NOT on
-# fabric's `output` dict: fudge decides whether an attribute is "local" by
-# looking in obj.__dict__, and _AttributeDict keeps its attributes as dict
-# *keys*. It therefore treats every flag as newly added and undoes the patch
-# with delattr(), which both raises (there is no _AttributeDict.__delattr__)
-# and would drop the flag's original value. Use fabric's own show()/hide()
-# for output flags instead.
-from fudge.patcher import with_patched_object
+from unittest import mock
+# NOTE: do not patch fabric's `output` dict attribute-wise. _AttributeDict
+# keeps its attributes as dict *keys* rather than in __dict__, so a patcher
+# that restores by deleting the attribute drops the flag's original value
+# (this bit us under fudge). Use fabric's own show()/hide() for output flags.
 
 import pytest
 
@@ -186,116 +182,119 @@ def test_puts_without_prefix():
     puts(s, show_prefix=False)
     eq_(sys.stdout.getvalue(), "%s" % (s + "\n"))
 
-@with_fakes
 def test_fastprint_calls_puts():
     """
     fastprint() is just an alias to puts()
     """
-    # TestErrorHandling's decorators build their Fake(expect_call=True) objects
-    # when this module is imported, and those land in fudge's global (process
-    # wide) expectation registry. @with_fakes verifies *every* registered
-    # expectation, so without this the assertion below fails complaining about
-    # someone else's fake. FabricTest.setup_method does the same clearing for
-    # class-based tests.
-    clear_expectations()
     text = "Some output"
-    fake_puts = Fake('puts', expect_call=True).with_args(
+    with mock.patch.object(utils, 'puts') as fake_puts:
+        fastprint(text)
+    fake_puts.assert_called_once_with(
         text=text, show_prefix=False, end="", flush=True
     )
-    with patched_context(utils, 'puts', fake_puts):
-        fastprint(text)
 
 
 class TestErrorHandling(FabricTest):
     dummy_string = 'test1234!'
 
-    @with_patched_object(utils, 'warn', Fake('warn', callable=True,
-        expect_call=True))
+    @staticmethod
+    def _abort_echoing_to(stream):
+        """
+        Patch abort() with a stub that echoes its message to ``stream``.
+
+        The real abort() raises SystemExit, which would cut the test short
+        before it can inspect what error() printed. Echoing keeps the message
+        observable, which is what these tests are actually checking.
+        """
+        return mock.patch.object(
+            utils, 'abort', side_effect=lambda x: stream.write(x + "\n")
+        )
+
     def test_error_warns_if_warn_only_True_and_func_None(self):
         """
         warn_only=True, error(func=None) => calls warn()
         """
-        with settings(warn_only=True):
-            error('foo')
+        with mock.patch.object(utils, 'warn') as warn_:
+            with settings(warn_only=True):
+                error('foo')
+        warn_.assert_called_once()
 
-    @with_patched_object(utils, 'abort', Fake('abort', callable=True,
-        expect_call=True))
     def test_error_aborts_if_warn_only_False_and_func_None(self):
         """
         warn_only=False, error(func=None) => calls abort()
         """
-        with settings(warn_only=False):
-            error('foo')
+        with mock.patch.object(utils, 'abort') as abort_:
+            with settings(warn_only=False):
+                error('foo')
+        abort_.assert_called_once()
 
     def test_error_calls_given_func_if_func_not_None(self):
         """
         error(func=callable) => calls callable()
         """
-        error('foo', func=Fake(callable=True, expect_call=True))
+        func = mock.Mock()
+        error('foo', func=func)
+        func.assert_called_once()
 
     @mock_streams('stdout')
-    @with_patched_object(utils, 'abort', Fake('abort', callable=True,
-        expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
     def test_error_includes_stdout_if_given_and_hidden(self):
         """
         error() correctly prints stdout if it was previously hidden
         """
         # Mostly to catch regression bug(s)
         stdout = "this is my stdout"
-        with hide('stdout'):
-            error("error message", func=utils.abort, stdout=stdout)
+        with self._abort_echoing_to(sys.stdout) as abort_:
+            with hide('stdout'):
+                error("error message", func=utils.abort, stdout=stdout)
+        abort_.assert_called_once()
         assert_contains(stdout, sys.stdout.getvalue())
 
     @mock_streams('stdout')
-    @with_patched_object(utils, 'abort', Fake('abort', callable=True,
-        expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
     @with_settings(show('exceptions'))
-    @with_patched_object(utils, 'format_exc', Fake('format_exc', callable=True,
-        expect_call=True).returns(dummy_string))
     def test_includes_traceback_if_exceptions_logging_is_on(self):
         """
         error() includes traceback in message if exceptions logging is on
         """
-        error("error message", func=utils.abort, stdout=error)
+        with self._abort_echoing_to(sys.stdout):
+            with mock.patch.object(utils, 'format_exc',
+                                   return_value=self.dummy_string):
+                error("error message", func=utils.abort, stdout=error)
         assert_contains(self.dummy_string, sys.stdout.getvalue())
 
     @mock_streams('stdout')
-    @with_patched_object(utils, 'abort', Fake('abort', callable=True,
-        expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
     @with_settings(show('debug'))
-    @with_patched_object(utils, 'format_exc', Fake('format_exc', callable=True,
-        expect_call=True).returns(dummy_string))
     def test_includes_traceback_if_debug_logging_is_on(self):
         """
         error() includes traceback in message if debug logging is on (backwardis compatibility)
         """
-        error("error message", func=utils.abort, stdout=error)
+        with self._abort_echoing_to(sys.stdout):
+            with mock.patch.object(utils, 'format_exc',
+                                   return_value=self.dummy_string):
+                error("error message", func=utils.abort, stdout=error)
         assert_contains(self.dummy_string, sys.stdout.getvalue())
 
     @mock_streams('stdout')
-    @with_patched_object(utils, 'abort', Fake('abort', callable=True,
-        expect_call=True).calls(lambda x: sys.stdout.write(x + "\n")))
     @with_settings(show('exceptions'))
-    @with_patched_object(utils, 'format_exc', Fake('format_exc', callable=True,
-        expect_call=True).returns(None))
     def test_doesnt_print_None_when_no_traceback_present(self):
         """
         error() doesn't include None in message if there is no traceback
         """
-        error("error message", func=utils.abort, stdout=error)
+        with self._abort_echoing_to(sys.stdout):
+            with mock.patch.object(utils, 'format_exc', return_value=None):
+                error("error message", func=utils.abort, stdout=error)
         assert_not_contains('None', sys.stdout.getvalue())
 
     @mock_streams('stderr')
-    @with_patched_object(utils, 'abort', Fake('abort', callable=True,
-        expect_call=True).calls(lambda x: sys.stderr.write(x + "\n")))
     def test_error_includes_stderr_if_given_and_hidden(self):
         """
         error() correctly prints stderr if it was previously hidden
         """
         # Mostly to catch regression bug(s)
         stderr = "this is my stderr"
-        with hide('stderr'):
-            error("error message", func=utils.abort, stderr=stderr)
+        with self._abort_echoing_to(sys.stderr) as abort_:
+            with hide('stderr'):
+                error("error message", func=utils.abort, stderr=stderr)
+        abort_.assert_called_once()
         assert_contains(stderr, sys.stderr.getvalue())
 
     @mock_streams('stderr')
