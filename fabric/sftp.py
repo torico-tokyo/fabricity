@@ -287,11 +287,19 @@ class SFTP(object):
                 try:
                     sudo("mv \"%s\" \"%s\"" % (remote_path, target_path))
                 except BaseException:
-                    # warn_only so the cleanup cannot mask the real failure:
-                    # a plain sudo() aborts (SystemExit) on a non-zero exit,
-                    # which would replace the `mv` exception we are re-raising
-                    # with a much less informative one. Upstream omits this.
-                    sudo("rm -f \"%s\"" % remote_path, warn_only=True)
+                    # Best effort, and it must stay that way: the cleanup must
+                    # never replace the `mv` failure we are re-raising, since
+                    # that is the one worth reporting. Two ways it could:
+                    # a non-zero exit status (plain sudo() would abort with
+                    # SystemExit -- hence warn_only), and the connection being
+                    # gone, which is a likely reason `mv` failed in the first
+                    # place and which raises straight out of sudo() regardless
+                    # of warn_only -- hence the try/except. Upstream has
+                    # neither guard.
+                    try:
+                        sudo("rm -f \"%s\"" % remote_path, warn_only=True)
+                    except BaseException:
+                        pass
                     raise
             # Revert to original remote_path for return value's sake
             remote_path = target_path

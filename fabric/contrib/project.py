@@ -119,6 +119,13 @@ def rsync_project(
     # --rsh be dropped entirely in the common case, which is what makes
     # rsync's daemon mode usable here (upstream fabric/fabric#1242).
     #
+    # Compared against SSH's own protocol default rather than upstream's
+    # `env.default_port`. Dropping the option is only safe when the port we
+    # would have passed is the one ssh already uses on its own; env.default_port
+    # is user-configurable, so if a caller has set it (and left env.port empty)
+    # then normalize() hands back *that* port and suppressing "-p" would leave
+    # rsync's ssh on 22 while Fabric itself connects elsewhere.
+    #
     # Known trade-off, inherited from upstream deliberately: normalize() has
     # already collapsed "port came from the host string" and "port came from
     # ssh_config/env" into one value, so a host string that spells out the
@@ -128,7 +135,7 @@ def rsync_project(
     # port is a contradictory configuration, and diverging here would defeat
     # the point of the upstream change, so the upstream behaviour is kept.
     port_string = ""
-    if port != env.default_port:
+    if str(port) != '22':
         port_string = "-p %s" % port
     # RSH
     rsh_string = ""
