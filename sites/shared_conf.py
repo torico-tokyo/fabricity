@@ -38,6 +38,11 @@ year = datetime.now().year
 copyright = '%d Jeff Forcier' % year
 master_doc = 'index'
 templates_path = ['_templates']
-exclude_trees = ['_build']
-source_suffix = '.rst'
+# NOTE: was `exclude_trees`, which Sphinx removed in 1.0 in favour of
+# `exclude_patterns`. It had been silently ignored ever since, so the build
+# tree was never actually excluded.
+exclude_patterns = ['_build']
+# The dict form is what Sphinx uses internally; the bare string form is
+# accepted but converted (and announced) on every build.
+source_suffix = {'.rst': 'restructuredtext'}
 default_role = 'obj'
