@@ -32,9 +32,13 @@ def _get_system_username():
     """
     Obtain name of current system user, which will be default connection user.
     """
-    import getpass
     username = None
     try:
+        # NOTE: imported inside the try on purpose. getpass is what raises
+        # ImportError on the platforms the `except ImportError` branch below
+        # exists for, so importing it at the top of the function made that
+        # branch unreachable (upstream fabric/fabric#983).
+        import getpass
         username = getpass.getuser()
     # getpass.getuser supported on both Unix and Windows systems.
     # getpass.getuser may call pwd.getpwuid which in turns may raise KeyError

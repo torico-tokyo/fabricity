@@ -651,7 +651,12 @@ def main(fabfile_locations=None):
 
         # Handle version number option
         if options.show_version:
-            print("Fabric3 %s" % state.env.version)
+            # NOTE: upstream's v1 branch changed this to plain "Fabric" when it
+            # merged Fabric3 back in. Neither name fits this fork: "Fabric3" is
+            # Mathias Ertl's project, which this diverged from, and "Fabric"
+            # collides with the real upstream 1.15.0, which is different code.
+            # The distribution is named `fabricity`, so identify as that.
+            print("Fabricity %s" % state.env.version)
             print("Paramiko %s" % ssh.__version__)
             sys.exit(0)
 
