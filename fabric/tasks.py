@@ -201,9 +201,43 @@ def _is_network_error_ignored():
     return not state.env.use_exceptions_for['network'] and state.env.skip_bad_hosts
 
 
-def _execute(task, host, my_env, args, kwargs, jobs, queue, multiprocessing):
+def _multiprocessing_context():
+    """
+    Return the ``multiprocessing`` context used to run ``@parallel`` tasks.
+
+    Parallel execution requires the ``fork`` start method. ``_execute`` hands
+    ``Process`` a closure as its target, and that closure expects the child to
+    have inherited the parent's already-imported fabfile, ``state.env`` and
+    connection cache. ``forkserver`` and ``spawn`` provide none of that: they
+    pickle the target and re-import it in a fresh interpreter, which cannot
+    work for a local function, nor for a fabfile that was loaded from an
+    arbitrary filesystem path instead of being importable by name.
+
+    ``fork`` was the platform default on Linux until Python 3.14 changed it to
+    ``forkserver``, so up to 3.13 this happened to be what we got for free.
+    Asking for the context explicitly keeps the behaviour identical across
+    versions (and on macOS, whose default has been ``spawn`` since 3.8).
+
+    Note that ``fork`` is not available everywhere -- notably on Windows. There
+    is no working fallback for us if it is missing, so we return the default
+    context and let the failure surface from ``Process`` itself, as it did
+    before this function existed.
+    """
+    import multiprocessing
+
+    try:
+        return multiprocessing.get_context('fork')
+    except ValueError:
+        return multiprocessing.get_context()
+
+
+def _execute(task, host, my_env, args, kwargs, jobs, queue, mp_context):
     """
     Primary single-host work body of execute()
+
+    ``mp_context`` is the multiprocessing context built by
+    ``_multiprocessing_context()``, and is only used (and only non-None) when
+    running in parallel.
     """
     # Log to stdout
     if state.output.running and not hasattr(task, 'return_value'):
@@ -257,7 +291,7 @@ def _execute(task, host, my_env, args, kwargs, jobs, queue, multiprocessing):
             'name': name,
             'env': local_env,
         }
-        p = multiprocessing.Process(target=inner, kwargs=kwarg_dict)
+        p = mp_context.Process(target=inner, kwargs=kwarg_dict)
         # Name/id is host string
         p.name = name
         # Add to queue
@@ -346,9 +380,10 @@ def execute(task, *args, **kwargs):
     parallel = requires_parallel(task)
     if parallel:
         # Import multiprocessing if needed, erroring out usefully
-        # if it can't.
+        # if it can't. What we keep hold of is a context object rather than
+        # the module itself; it exposes the Process/Queue we use identically.
         try:
-            import multiprocessing
+            mp_context = _multiprocessing_context()
         except ImportError:
             import traceback
             tb = traceback.format_exc()
@@ -358,12 +393,12 @@ def execute(task, *args, **kwargs):
     traceback.) Please make sure the module is installed
     or that the above ImportError is fixed.""")
     else:
-        multiprocessing = None
+        mp_context = None
 
     # Get pool size for this task
     pool_size = task.get_pool_size(my_env['all_hosts'], state.env.pool_size)
     # Set up job queue in case parallel is needed
-    queue = multiprocessing.Queue() if parallel else None
+    queue = mp_context.Queue() if parallel else None
     jobs = JobQueue(pool_size, queue)
     if state.output.debug:
         jobs._debug = True
@@ -375,7 +410,7 @@ def execute(task, *args, **kwargs):
             try:
                 results[host] = _execute(
                     task, host, my_env, args, new_kwargs, jobs, queue,
-                    multiprocessing
+                    mp_context
                 )
             except NetworkError as e:
                 results[host] = e
