@@ -12,12 +12,6 @@ import tempfile
 
 import pytest
 
-# TRANSITIONAL: still needed while some test modules use fudge. fudge keeps its
-# expectations in a process-global registry, so without this wipe between tests
-# a @with_fakes test verifies every other module's import-time expectations too.
-# Remove together with the last fudge usage (and tests/_vendor/fudge).
-from fudge import clear_expectations
-
 from fabric.state import env, output
 from fabric.sftp import SFTP
 from fabric.network import to_dict
@@ -31,8 +25,6 @@ class FabricTest(object):
     Base class which wipes state.env between tests and provides file helpers.
     """
     def setup_method(self, method):
-        # Clear fudge mock expectations (transitional; see the import above)
-        clear_expectations()
         # Copy env, output for restoration in teardown
         self.previous_env = copy.deepcopy(env)
         # Deepcopy doesn't work well on AliasDicts; but they're only one layer
@@ -66,8 +58,6 @@ class FabricTest(object):
         env.update(self.previous_env)
         output.update(self.previous_output)
         shutil.rmtree(self.tmpdir)
-        # Clear fudge mock expectations...again
-        clear_expectations()
 
     def path(self, *path_parts):
         return os.path.join(self.tmpdir, *path_parts)

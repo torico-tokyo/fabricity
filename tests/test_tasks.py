@@ -292,7 +292,10 @@ class TestExecute(FabricTest):
         task = fake_task(side_effect=host_string)
         with hide('everything'):
             execute(task, hosts=hosts)
-        eq_(len(hostlist) + task.call_count, 3)
+        # Every host ran exactly once, in order (host_string asserts the order
+        # as it pops; an empty hostlist means it got through all of them).
+        eq_(3, task.call_count)
+        eq_([], hostlist)
 
     def test_should_honor_hosts_decorator(self):
         """
@@ -360,7 +363,9 @@ class TestExecute(FabricTest):
             execute(
                 task, hosts=hosts, roles=roles, exclude_hosts=exclude_hosts
             )
-        assert task.call_count
+        # 'a' is excluded, so b/c/d each ran once and the side effect above
+        # checked env.all_hosts on every one of them.
+        eq_(3, task.call_count)
 
     @mock_streams('stdout')
     def test_should_print_executing_line_per_host(self):
