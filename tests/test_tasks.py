@@ -3,12 +3,16 @@ from __future__ import with_statement
 from fudge import Fake, patched_context, with_fakes
 import unittest
 
+import multiprocessing
 import pytest
 import random
 import sys
 
 import fabric
-from fabric.tasks import WrappedCallableTask, execute, Task, get_task_details
+from fabric.tasks import (
+    WrappedCallableTask, execute, Task, get_task_details,
+    _multiprocessing_context,
+)
 from fabric.main import display_command
 from fabric.api import run, env, settings, hosts, roles, hide, parallel, task, runs_once, serial
 from fabric.exceptions import NetworkError
@@ -16,6 +20,31 @@ from fabric.exceptions import NetworkError
 from mock_streams import mock_streams
 from utils import eq_, FabricTest, aborts, support
 from server import server
+
+
+class TestMultiprocessingContext(unittest.TestCase):
+    @pytest.mark.skipif(
+        'fork' not in multiprocessing.get_all_start_methods(),
+        reason="platform has no fork start method",
+    )
+    def test_uses_fork_regardless_of_platform_default(self):
+        """
+        Parallel execution must ask for fork, not take the platform default
+
+        Python 3.14 changed the Linux default from fork to forkserver (macOS
+        moved to spawn back in 3.8). Both pickle the Process target, which
+        cannot work for the closure _execute() hands them, so the start method
+        has to be requested explicitly.
+        """
+        eq_('fork', _multiprocessing_context().get_start_method())
+
+    def test_exposes_the_module_api_execute_relies_on(self):
+        """
+        The context stands in for the module, so it must offer Process/Queue
+        """
+        context = _multiprocessing_context()
+        assert callable(context.Process)
+        assert callable(context.Queue)
 
 
 def test_base_task_provides_undefined_name():

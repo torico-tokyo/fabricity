@@ -10,7 +10,14 @@ try:
     import Queue
 except ImportError:
     import queue as Queue
-from multiprocessing import Process
+# NOTE: this is BaseProcess, not multiprocessing.Process. Each start method
+# has its own Process class (ForkProcess, SpawnProcess, ...) and they are
+# siblings, not subclasses, of multiprocessing.Process -- so jobs built from
+# an explicit context (see tasks._multiprocessing_context) do not satisfy
+# `isinstance(job, multiprocessing.Process)`. BaseProcess is the common
+# ancestor of all of them, and still excludes threading.Thread, which has no
+# exitcode to read.
+from multiprocessing.process import BaseProcess
 
 from fabric.network import ssh
 from fabric.context_managers import settings
@@ -177,7 +184,7 @@ class JobQueue(object):
 
         # Attach exit codes now that we're all done & have joined all jobs
         for job in self._completed:
-            if isinstance(job, Process):
+            if isinstance(job, BaseProcess):
                 results[job.name]['exit_code'] = job.exitcode
 
         return results
