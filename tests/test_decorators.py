@@ -3,8 +3,7 @@ import sys
 
 import pytest
 
-import fudge
-from fudge import Fake, with_fakes, patched_context
+from unittest import mock
 
 from fabric import decorators, tasks
 from fabric.state import env
@@ -22,17 +21,13 @@ from utils import eq_
 
 def fake_function(*args, **kwargs):
     """
-    Returns a ``fudge.Fake`` exhibiting function-like attributes.
+    Returns a ``Mock`` exhibiting function-like attributes.
 
-    Passes in all args/kwargs to the ``fudge.Fake`` constructor. However, if
-    ``callable`` or ``expect_call`` kwargs are not given, ``callable`` will be
-    set to True by default.
+    Passes in all args/kwargs to the ``Mock`` constructor.
     """
     # Must define __name__ to be compatible with function wrapping mechanisms
     # like @wraps().
-    if 'callable' not in kwargs and 'expect_call' not in kwargs:
-        kwargs['callable'] = True
-    return Fake(*args, **kwargs).has_attr(__name__='fake')
+    return mock.Mock(*args, __name__='fake', **kwargs)
 
 
 
@@ -49,27 +44,24 @@ def test_task_returns_an_instance_of_wrappedfunctask_object():
 
 def test_task_will_invoke_provided_class():
     def foo(): pass
-    fake = Fake()
-    fake.expects("__init__").with_args(foo)
-    fudge.clear_calls()
-    fudge.clear_expectations()
+    task_class = mock.Mock()
 
-    foo = decorators.task(foo, task_class=fake)
+    # NOTE: passing task_class makes task() "invoked" (see decorators.task),
+    # so it returns a wrapper that has to be applied to get the class built.
+    decorators.task(task_class=task_class)(foo)
 
-    fudge.verify()
+    task_class.assert_called_once_with(foo)
 
 
 def test_task_passes_args_to_the_task_class():
     random_vars = ("some text", random.randint(100, 200))
     def foo(): pass
 
-    fake = Fake()
-    fake.expects("__init__").with_args(foo, *random_vars)
-    fudge.clear_calls()
-    fudge.clear_expectations()
+    task_class = mock.Mock()
 
-    foo = decorators.task(foo, task_class=fake, *random_vars)
-    fudge.verify()
+    decorators.task(*random_vars, task_class=task_class)(foo)
+
+    task_class.assert_called_once_with(foo, *random_vars)
 
 
 def test_passes_kwargs_to_the_task_class():
@@ -79,13 +71,11 @@ def test_passes_kwargs_to_the_task_class():
     }
     def foo(): pass
 
-    fake = Fake()
-    fake.expects("__init__").with_args(foo, **random_vars)
-    fudge.clear_calls()
-    fudge.clear_expectations()
+    task_class = mock.Mock()
 
-    foo = decorators.task(foo, task_class=fake, **random_vars)
-    fudge.verify()
+    decorators.task(task_class=task_class, **random_vars)(foo)
+
+    task_class.assert_called_once_with(foo, **random_vars)
 
 
 def test_integration_tests_for_invoked_decorator_with_no_args():
@@ -120,15 +110,15 @@ def test_original_non_invoked_style_task():
 # @runs_once
 #
 
-@with_fakes
 def test_runs_once_runs_only_once():
     """
     @runs_once prevents decorated func from running >1 time
     """
-    func = fake_function(expect_call=True).times_called(1)
+    func = fake_function()
     task = decorators.runs_once(func)
     for i in range(2):
         task()
+    eq_(1, func.call_count)
 
 
 def test_runs_once_returns_same_value_each_run():
@@ -136,7 +126,7 @@ def test_runs_once_returns_same_value_each_run():
     @runs_once memoizes return value of decorated func
     """
     return_value = "foo"
-    task = decorators.runs_once(fake_function().returns(return_value))
+    task = decorators.runs_once(fake_function(return_value=return_value))
     for i in range(2):
         eq_(task(), return_value)
 
@@ -203,7 +193,7 @@ fake_tasks = {
 ])
 def test_parallel_tasks(task_names, expected):
     commands_to_run = map(lambda x: [x], task_names)
-    with patched_context(fabric.state, 'commands', fake_tasks):
+    with mock.patch.object(fabric.state, 'commands', fake_tasks):
         eq_(_parallel_tasks(commands_to_run), expected)
 
 def test_parallel_wins_vs_serial():

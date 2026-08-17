@@ -8,8 +8,7 @@ import six
 import sys
 
 import pytest
-from fudge import patched_context, with_fakes, Fake
-from fudge.inspector import arg as fudge_arg
+from unittest import mock
 from mock_streams import mock_streams
 from paramiko.sftp_client import SFTPClient  # for patching
 
@@ -166,6 +165,22 @@ def test_require_complex_non_empty_values():
 #
 # prompt()
 #
+
+def assert_commands_start_with(fake_run, prefixes):
+    """
+    Assert _run_command() was called once per prefix, in order.
+
+    The commands embed a generated temp path, so only the leading, stable part
+    of each is checked. The trailing (True, True, None) positional args are
+    shell/pty/combine_stderr and are asserted as-is.
+    """
+    commands = [call[0] for call in fake_run.call_args_list]
+    eq_(len(prefixes), len(commands))
+    for prefix, args in zip(prefixes, commands):
+        assert args[0].startswith(prefix), (
+            "expected a command starting with %r, got %r" % (prefix, args[0]))
+        eq_((True, True, None), args[1:])
+
 
 def p(x):
     sys.stdout.write(x)
@@ -776,53 +791,47 @@ class TestFileTransfers(FabricTest):
             eq_(sftp.glob(path), [path])
 
     @server()
-    @with_fakes
     def test_get_use_sudo(self):
         """
         get(use_sudo=True) works by copying to a temporary path, downloading it and then removing it at the end
         """
-        fake_run = Fake('_run_command', callable=True, expect_call=True).with_matching_args(
-            fudge_arg.startswith('cp -p "/etc/apache2/apache2.conf" "'), True, True, None
-        ).next_call().with_matching_args(
-            fudge_arg.startswith('chown username "'), True, True, None,
-        ).next_call().with_matching_args(
-            fudge_arg.startswith('chmod 400 "'), True, True, None,
-        ).next_call().with_matching_args(
-            fudge_arg.startswith('rm -f "'), True, True, None,
-        )
-        fake_get = Fake('get', callable=True, expect_call=True)
-
         with hide('everything'):
-            with patched_context('fabric.operations', '_run_command', fake_run):
-                with patched_context(SFTPClient, 'get', fake_get):
+            with mock.patch('fabric.operations._run_command') as fake_run:
+                with mock.patch.object(SFTPClient, 'get') as fake_get:
                     retval = get('/etc/apache2/apache2.conf', self.path(), use_sudo=True)
                     # check that the downloaded file has the same name as the one requested
                     assert retval[0].endswith('apache2.conf')
+        assert_commands_start_with(fake_run, [
+            'cp -p "/etc/apache2/apache2.conf" "',
+            'chown username "',
+            'chmod 400 "',
+            'rm -f "',
+        ])
+        fake_get.assert_called_once()
 
     @server()
-    @with_fakes
     def test_get_use_sudo_temp_dir(self):
         """
         get(use_sudo=True, temp_dir="/tmp") works by copying to /tmp/..., downloading it and then removing it at the end
         """
-        fake_run = Fake('_run_command', callable=True, expect_call=True).with_matching_args(
-            fudge_arg.startswith('cp -p "/etc/apache2/apache2.conf" "/tmp/'), True, True, None,
-        ).next_call().with_matching_args(
-            fudge_arg.startswith('chown username "/tmp/'), True, True, None,
-        ).next_call().with_matching_args(
-            fudge_arg.startswith('chmod 400 "/tmp/'), True, True, None,
-        ).next_call().with_matching_args(
-            fudge_arg.startswith('rm -f "/tmp/'), True, True, None,
-        )
-        fake_get = Fake('get', callable=True, expect_call=True).with_args(
-            fudge_arg.startswith('/tmp/'), fudge_arg.any_value())
-
         with hide('everything'):
-            with patched_context('fabric.operations', '_run_command', fake_run):
-                with patched_context(SFTPClient, 'get', fake_get):
+            with mock.patch('fabric.operations._run_command') as fake_run:
+                with mock.patch.object(SFTPClient, 'get') as fake_get:
                     retval = get('/etc/apache2/apache2.conf', self.path(), use_sudo=True, temp_dir="/tmp")
                     # check that the downloaded file has the same name as the one requested
                     assert retval[0].endswith('apache2.conf')
+        assert_commands_start_with(fake_run, [
+            'cp -p "/etc/apache2/apache2.conf" "/tmp/',
+            'chown username "/tmp/',
+            'chmod 400 "/tmp/',
+            'rm -f "/tmp/',
+        ])
+        fake_get.assert_called_once()
+        # Remote path is the temp copy under /tmp; local path is where the
+        # caller asked for it. Both args matter, so check both.
+        remote_path, local_path = fake_get.call_args[0][:2]
+        assert remote_path.startswith('/tmp/')
+        assert local_path
 
     #
     # put()
@@ -971,43 +980,35 @@ class TestFileTransfers(FabricTest):
         eq_contents(local2, text)
 
     @server()
-    @with_fakes
     def test_put_use_sudo(self):
         """
         put(use_sudo=True) works by uploading a the `local_path` to a temporary path and then moving it to a `remote_path`
         """
-        fake_run = Fake('_run_command', callable=True, expect_call=True).with_matching_args(
-            fudge_arg.startswith('mv "'), True, True, None,
-        )
-        fake_put = Fake('put', callable=True, expect_call=True)
-
         local_path = self.mkfile('foobar.txt', "baz")
         with hide('everything'):
-            with patched_context('fabric.operations', '_run_command', fake_run):
-                with patched_context(SFTPClient, 'put', fake_put):
+            with mock.patch('fabric.operations._run_command') as fake_run:
+                with mock.patch.object(SFTPClient, 'put') as fake_put:
                     retval = put(local_path, "/", use_sudo=True)
                     # check that the downloaded file has the same name as the one requested
                     assert retval[0].endswith('foobar.txt')
+        assert_commands_start_with(fake_run, ['mv "'])
+        fake_put.assert_called_once()
 
     @server()
-    @with_fakes
     def test_put_use_sudo_temp_dir(self):
         """
         put(use_sudo=True, temp_dir='/tmp/') works by uploading a file to /tmp/ and then moving it to a `remote_path`
         """
         # the sha1 hash is the unique filename of the file being downloaded. sha1(<filename>)
-        fake_run = Fake('_run_command', callable=True, expect_call=True).with_matching_args(
-            fudge_arg.startswith('mv "'), True, True, None,
-        )
-        fake_put = Fake('put', callable=True, expect_call=True)
-
         local_path = self.mkfile('foobar.txt', "baz")
         with hide('everything'):
-            with patched_context('fabric.operations', '_run_command', fake_run):
-                with patched_context(SFTPClient, 'put', fake_put):
+            with mock.patch('fabric.operations._run_command') as fake_run:
+                with mock.patch.object(SFTPClient, 'put') as fake_put:
                     retval = put(local_path, "/", use_sudo=True, temp_dir='/tmp/')
                     # check that the downloaded file has the same name as the one requested
                     assert retval[0].endswith('foobar.txt')
+        assert_commands_start_with(fake_run, ['mv "'])
+        fake_put.assert_called_once()
 
 
     #

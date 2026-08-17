@@ -46,10 +46,9 @@ def test(args=None):
         return
     _pytest([])
     # A couple of fabric's own modules carry doctests. They sit outside
-    # testpaths, so they need their own run -- pointing --doctest-modules at
-    # tests/ instead would try to execute the vendored fudge's Python 2
-    # doctests. (The old nose command passed --with-doctest but targeted
-    # `tests`, which contains no doctests, so this never actually ran.)
+    # testpaths, so they need their own run. (The old nose command passed
+    # --with-doctest but targeted `tests`, which contains no doctests, so this
+    # never actually ran.)
     _pytest(["--doctest-modules", "fabric"])
 
 

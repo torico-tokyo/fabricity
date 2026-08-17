@@ -3,11 +3,8 @@
 
 # Test runner/testing utils
 pytest>=7.0
-# NOTE: the mocking library (fudge) is NOT listed here. It cannot be installed
-# on any supported interpreter -- fudge 1.1.1 is Python 2 source that relies on
-# setuptools running 2to3 at install time, and both use_2to3 (setuptools 58)
-# and lib2to3 (Python 3.13) are gone. A converted copy lives in
-# tests/_vendor/fudge; see tests/_vendor/README.md.
+# NOTE: there is no mocking library listed here. The suite uses the standard
+# library's unittest.mock.
 # Template rendering, exercised by contrib.files.upload_template(use_jinja=True).
 # Deliberately unpinned: jinja2 2.x imports markupsafe.soft_unicode, which
 # markupsafe removed in 2.1, and jinja2 2.x's own regexes are rejected by

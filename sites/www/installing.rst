@@ -112,8 +112,6 @@ packages:
 * `pytest <https://docs.pytest.org/>`_
 * `Coverage <http://nedbatchelder.com/code/modules/coverage.html>`_
 * `PyLint <http://www.logilab.org/857>`_
-* `Fudge <http://farmdev.com/projects/fudge/index.html>`_ -- not installed;
-  a Python 3 copy is vendored in ``tests/_vendor/fudge``
 * `Sphinx <http://sphinx.pocoo.org/>`_
 
 For an up-to-date list of exact testing/development requirements, including

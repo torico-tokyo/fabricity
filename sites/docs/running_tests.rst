@@ -63,7 +63,5 @@ tests connect using it directly.
     suite replaces ``sys.stdout``/``sys.stderr`` itself and runs a real SSH
     server on localhost, neither of which survives pytest's capturing.
 
-The mocking library, `fudge <http://farmdev.com/projects/fudge/index.html>`_,
-is **vendored** under ``tests/_vendor/fudge`` rather than installed -- it is
-Python 2 source that relied on ``2to3`` running at install time, which is no
-longer possible. See ``tests/_vendor/README.md``.
+Mocking is done with the standard library's :mod:`unittest.mock`, so there is
+no third-party mocking library to install.

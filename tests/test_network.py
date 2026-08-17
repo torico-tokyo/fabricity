@@ -3,19 +3,17 @@ from __future__ import with_statement
 import sys
 
 import pytest
-from fudge import (Fake, patch_object, with_patched_object, patched_context,
-                   with_fakes)
+from unittest import mock
 
 from fabric.context_managers import settings, hide, show
 from fabric.network import (HostConnectionCache, join_host_strings, normalize,
                             denormalize, key_filenames, key_from_env, ssh,
                             NetworkError, connect)
-import fabric.network  # So I can call patch_object correctly. Sigh.
+import fabric.network  # So its module-level names can be patched
 from fabric.state import env, output, _get_system_username
 from fabric.operations import run, sudo, prompt
 from fabric.tasks import execute
 from fabric.api import parallel
-from fabric import utils # for patching
 
 from mock_streams import mock_streams
 from server import (server, RESPONSES, PASSWORDS, CLIENT_PRIVKEY, USER,
@@ -154,23 +152,16 @@ class TestNetwork(FabricTest):
     # Connection caching
     #
     @staticmethod
-    @with_fakes
     def check_connection_calls(host_strings, num_calls):
-        # Clear Fudge call stack
-        # Patch connect() with Fake obj set to expect num_calls calls
-        patched_connect = patch_object('fabric.network', 'connect',
-            Fake('connect', expect_call=True).times_called(num_calls)
-        )
-        try:
+        # Patch connect() and count how many times the cache reaches for it
+        with mock.patch('fabric.network.connect') as fake_connect:
             # Make new cache object
             cache = HostConnectionCache()
             # Connect to all connection strings
             for host_string in host_strings:
                 # Obtain connection from cache, potentially calling connect()
                 cache[host_string]
-        finally:
-            # Restore connect()
-            patched_connect.restore()
+        eq_(num_calls, fake_connect.call_count)
 
     @pytest.mark.parametrize('host_strings, num_calls', [
         pytest.param(('localhost', 'other-system'), 2,
@@ -190,8 +181,7 @@ class TestNetwork(FabricTest):
         HostConnectionCache should delete correctly w/ non-full keys
         """
         hcc = HostConnectionCache()
-        fake = Fake('connect', callable=True)
-        with patched_context('fabric.network', 'connect', fake):
+        with mock.patch('fabric.network.connect'):
             for host_string in ('hostname', 'user@hostname',
                 'user@hostname:222'):
                 # Prime
@@ -213,7 +203,6 @@ class TestNetwork(FabricTest):
         assert isinstance(cache[env.host_string], ssh.SSHClient)
 
     @server()
-    @with_fakes
     def test_prompts_for_password_without_good_authentication(self):
         env.password = None
         with password_response(PASSWORDS[env.user], times_called=1):
@@ -242,7 +231,6 @@ class TestNetwork(FabricTest):
             cache = HostConnectionCache()
             cache[env.host_string]
 
-    @with_fakes
     def test_connect_does_not_prompt_password_when_ssh_raises_channel_exception(self):
         def raise_channel_exception_once(*args, **kwargs):
             if raise_channel_exception_once.should_raise_channel_exception:
@@ -250,18 +238,16 @@ class TestNetwork(FabricTest):
                 raise ssh.ChannelException(2, 'Connect failed')
         raise_channel_exception_once.should_raise_channel_exception = True
 
-        def generate_fake_client():
-            # NOTE: no expect_call=True here. This fake stands in for the
-            # SSHClient *instance*, which connect() only ever calls methods on
-            # -- it never invokes the object itself, so an expect_call on it
-            # can never be satisfied. What this test actually asserts is the
-            # times_called(0) on prompt_for_password below.
-            fake_client = Fake('SSHClient', allows_any_call=True)
-            fake_client.provides('connect').calls(raise_channel_exception_once)
+        def generate_fake_client(*args, **kwargs):
+            # This stands in for the SSHClient *instance*, which connect()
+            # only ever calls methods on, so a plain Mock is enough. It is not
+            # specced, so it accepts any method name.
+            fake_client = mock.Mock()
+            fake_client.connect.side_effect = raise_channel_exception_once
             return fake_client
 
-        fake_ssh = Fake('ssh', allows_any_call=True)
-        fake_ssh.provides('SSHClient').calls(generate_fake_client)
+        fake_ssh = mock.Mock()
+        fake_ssh.SSHClient.side_effect = generate_fake_client
         # We need the real exceptions here to preserve the inheritence
         # structure -- and every exception class connect() names in an `except`
         # clause has to be a real one, or evaluating that clause raises
@@ -271,15 +257,17 @@ class TestNetwork(FabricTest):
         fake_ssh.BadHostKeyException = ssh.BadHostKeyException
         fake_ssh.AuthenticationException = ssh.AuthenticationException
         fake_ssh.PasswordRequiredException = ssh.PasswordRequiredException
-        patched_connect = patch_object('fabric.network', 'ssh', fake_ssh)
-        patched_password = patch_object('fabric.network', 'prompt_for_password', Fake('prompt_for_password', callable = True).times_called(0))
-        try:
-            with pytest.raises(NetworkError):
-                connect('user', 'localhost', 22, HostConnectionCache())
-        finally:
-            # Restore ssh
-            patched_connect.restore()
-            patched_password.restore()
+
+        with mock.patch.object(fabric.network, 'ssh', fake_ssh):
+            with mock.patch.object(
+                fabric.network, 'prompt_for_password'
+            ) as fake_prompt:
+                with pytest.raises(NetworkError):
+                    connect('user', 'localhost', 22, HostConnectionCache())
+
+        # The point of the test: a ChannelException must not send us down the
+        # password-prompting path.
+        fake_prompt.assert_not_called()
 
 
     @mock_streams('stdout')
@@ -552,7 +540,7 @@ result2
         Ensure env.host is set during host prompting
         """
         copied_host_string = str(env.host_string)
-        fake = Fake('raw_input', callable=True).returns(copied_host_string)
+        fake = mock.Mock(return_value=copied_host_string)
         env.host_string = None
         env.host = None
         with settings(hide('everything'), patched_input(fake)):
@@ -690,12 +678,16 @@ class TestSSHConfig(FabricTest):
         eq_(normalize("localhost")[1], "localhost")
         eq_(normalize("myalias")[1], "otherhost")
 
-    @with_patched_object(utils, 'warn', Fake('warn', callable=True,
-        expect_call=True))
     def test_warns_with_bad_config_file_path(self):
         # use_ssh_config is already set in our env_setup()
-        with settings(hide('everything'), ssh_config_path="nope_bad_lol"):
-            normalize('foo')
+        # NOTE: patch network's own reference, not fabric.utils.warn. network
+        # does `from fabric.utils import warn`, so it never looks the name up
+        # on the module again. (The fudge version patched fabric.utils and
+        # asserted nothing, so it passed without ever seeing a warn() call.)
+        with mock.patch.object(fabric.network, 'warn') as warn_:
+            with settings(hide('everything'), ssh_config_path="nope_bad_lol"):
+                normalize('foo')
+        warn_.assert_called_once()
 
     @server()
     def test_real_connection(self):
@@ -861,8 +853,7 @@ class TestDisabledAlgorithms(FabricTest):
 
             def get_transport(self):
                 # Only reached on the gateway path, via direct_tcpip().
-                return Fake('transport').provides('open_channel').returns(
-                    Fake('channel'))
+                return mock.Mock()
 
         real = fabric.network.ssh.SSHClient
         fabric.network.ssh.SSHClient = RecordingClient
