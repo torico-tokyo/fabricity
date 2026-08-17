@@ -1,6 +1,6 @@
 from contextlib import contextmanager
-from fudge.patcher import with_patched_object
 from functools import partial, wraps
+from unittest import mock
 import copy
 import getpass
 import os
@@ -12,7 +12,11 @@ import tempfile
 
 import pytest
 
-from fudge import Fake, patched_context, clear_expectations
+# TRANSITIONAL: still needed while some test modules use fudge. fudge keeps its
+# expectations in a process-global registry, so without this wipe between tests
+# a @with_fakes test verifies every other module's import-time expectations too.
+# Remove together with the last fudge usage (and tests/_vendor/fudge).
+from fudge import clear_expectations
 
 from fabric.state import env, output
 from fabric.sftp import SFTP
@@ -27,7 +31,7 @@ class FabricTest(object):
     Base class which wipes state.env between tests and provides file helpers.
     """
     def setup_method(self, method):
-        # Clear Fudge mock expectations
+        # Clear fudge mock expectations (transitional; see the import above)
         clear_expectations()
         # Copy env, output for restoration in teardown
         self.previous_env = copy.deepcopy(env)
@@ -62,7 +66,7 @@ class FabricTest(object):
         env.update(self.previous_env)
         output.update(self.previous_output)
         shutil.rmtree(self.tmpdir)
-        # Clear Fudge mock expectations...again
+        # Clear fudge mock expectations...again
         clear_expectations()
 
     def path(self, *path_parts):
@@ -81,6 +85,7 @@ class FabricTest(object):
         return os.path.exists(path)
 
 
+@contextmanager
 def password_response(password, times_called=None, silent=True):
     """
     Context manager which patches ``getpass.getpass`` to return ``password``.
@@ -92,36 +97,44 @@ def password_response(password, times_called=None, silent=True):
     * If iterable, iterated over for each call to ``getpass``, after which
       ``getpass`` will error.
 
-    If ``times_called`` is given, it is used to add a ``Fake.times_called``
-    clause to the mock object, e.g. ``.times_called(1)``. Specifying
-    ``times_called`` alongside an iterable ``password`` list is unsupported
-    (see Fudge docs on ``Fake.next_call``).
+    If ``times_called`` is given, ``getpass`` must have been called exactly
+    that many times by the end of the block. Specifying ``times_called``
+    alongside an iterable ``password`` list is unsupported.
 
     If ``silent`` is True, no prompt will be printed to ``sys.stderr``.
     """
-    fake = Fake('getpass', callable=True)
     # Assume stringtype or iterable, turn into mutable iterable
     if isinstance(password, six.string_types):
         passwords = [password]
     else:
         passwords = list(password)
-    # Optional echoing of prompt to mimic real behavior of getpass
-    # NOTE: also echo a newline if the prompt isn't a "passthrough" from the
-    # server (as it means the server won't be sending its own newline for us).
-    echo = lambda x, y: y.write(x + ("\n" if x != " " else ""))
-    # Always return first (only?) password right away
-    fake = fake.returns(passwords.pop(0))
-    if not silent:
-        fake = fake.calls(echo)
-    # If we had >1, return those afterwards
-    for pw in passwords:
-        fake = fake.next_call().returns(pw)
-        if not silent:
-            fake = fake.calls(echo)
-    # Passthrough times_called
-    if times_called:
-        fake = fake.times_called(times_called)
-    return patched_context(getpass, 'getpass', fake)
+
+    def respond(prompt='', stream=None):
+        # Optional echoing of prompt to mimic real behavior of getpass
+        # NOTE: also echo a newline if the prompt isn't a "passthrough" from
+        # the server (as it means the server won't be sending its own newline
+        # for us).
+        if not silent and stream is not None:
+            stream.write(prompt + ("\n" if prompt != " " else ""))
+        # A lone password answers every prompt; a list is consumed one prompt
+        # at a time and running off the end is an error, as it means the code
+        # under test asked more times than the test said it would.
+        index = respond.calls
+        respond.calls += 1
+        if len(passwords) == 1:
+            return passwords[0]
+        try:
+            return passwords[index]
+        except IndexError:
+            raise AssertionError(
+                "getpass was called %s time(s), but only %s password(s) were "
+                "given" % (index + 1, len(passwords)))
+    respond.calls = 0
+
+    with mock.patch.object(getpass, 'getpass', side_effect=respond) as fake:
+        yield fake
+        if times_called is not None:
+            eq_(times_called, fake.call_count)
 
 
 def _assert_contains(needle, haystack, invert):
@@ -208,10 +221,17 @@ def aborts(func):
     return wrapper
 
 
-def _patched_input(func, fake):
+def patched_input(fake):
+    """
+    Patch the builtin input with ``fake``.
+
+    ``mock.patch.object`` works as both a context manager and a decorator, so
+    unlike fudge (which had a separate patched_context/with_patched_object
+    pair) one helper covers both uses. ``with_patched_input`` is kept as an
+    alias so the decorator form still reads as one at the call site.
+    """
     if six.PY3 is True:
-        return func(sys.modules['builtins'], 'input', fake)
+        return mock.patch.object(sys.modules['builtins'], 'input', fake)
     else:
-        return func(sys.modules['__builtin__'], 'raw_input', fake)
-patched_input = partial(_patched_input, patched_context)
-with_patched_input = partial(_patched_input, with_patched_object)
+        return mock.patch.object(sys.modules['__builtin__'], 'raw_input', fake)
+with_patched_input = patched_input

@@ -9,7 +9,8 @@ import os.path
 import sys
 
 import pytest
-from fudge import Fake, patched_context
+from types import SimpleNamespace
+from unittest import mock
 
 from fabric.decorators import hosts, roles, task
 from fabric.context_managers import settings
@@ -394,10 +395,12 @@ class TestFindFabfile(FabricTest):
 #
 
 def run_load_fabfile(path, sys_path):
-    # Module-esque object
-    fake_module = Fake().has_attr(__dict__={})
+    # Module-esque object. A plain namespace, not a Mock: load_fabfile reads
+    # the module's __dict__, and handing Mock its own __dict__ replaces the
+    # internals it needs to work.
+    fake_module = SimpleNamespace()
     # Fake __import__
-    importer = Fake(callable=True).returns(fake_module)
+    importer = mock.Mock(return_value=fake_module)
     # Snapshot sys.path for restore
     orig_path = copy.copy(sys.path)
     # Update with fake path
@@ -588,7 +591,7 @@ def list_output(module, format_, expected):
     module = fabfile(module)
     with path_prefix(module):
         docstring, tasks = load_fabfile(module)
-        with patched_context(fabric.state, 'commands', tasks):
+        with mock.patch.object(fabric.state, 'commands', tasks):
             eq_output(docstring, format_, expected)
 
 
