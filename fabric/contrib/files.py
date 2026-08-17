@@ -160,7 +160,11 @@ def upload_template(filename, destination, context=None, use_jinja=False,
 
     # Back up original file
     if backup and exists(destination):
-        func("cp %s{,.bak}" % _expand_path(destination))
+        # NOTE: written out in full rather than as `cp %s{,.bak}`. Brace
+        # expansion is a bash/zsh feature, so the shorthand silently created a
+        # file literally named `<path>{,.bak}` under e.g. dash or ksh.
+        target = _expand_path(destination)
+        func("cp %s %s.bak" % (target, target))
 
     if six.PY3 is True and isinstance(text, bytes):
         text = text.decode('utf-8')

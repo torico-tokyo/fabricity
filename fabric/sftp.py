@@ -281,7 +281,26 @@ class SFTP(object):
             # Temporarily nuke 'cwd' so sudo() doesn't "cd" its mv command.
             # (The target path has already been cwd-ified elsewhere.)
             with settings(hide('everything'), cwd=""):
-                sudo("mv \"%s\" \"%s\"" % (remote_path, target_path))
+                # If the move fails the upload is lost anyway, so clean the
+                # temp file up rather than leaving it behind on the remote
+                # host (upstream fabric/fabric#1341).
+                try:
+                    sudo("mv \"%s\" \"%s\"" % (remote_path, target_path))
+                except BaseException:
+                    # Best effort, and it must stay that way: the cleanup must
+                    # never replace the `mv` failure we are re-raising, since
+                    # that is the one worth reporting. Two ways it could:
+                    # a non-zero exit status (plain sudo() would abort with
+                    # SystemExit -- hence warn_only), and the connection being
+                    # gone, which is a likely reason `mv` failed in the first
+                    # place and which raises straight out of sudo() regardless
+                    # of warn_only -- hence the try/except. Upstream has
+                    # neither guard.
+                    try:
+                        sudo("rm -f \"%s\"" % remote_path, warn_only=True)
+                    except BaseException:
+                        pass
+                    raise
             # Revert to original remote_path for return value's sake
             remote_path = target_path
         return remote_path
