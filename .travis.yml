@@ -1,19 +1,30 @@
 language: python
 python:
-  # Must stay in sync with the classifiers in setup.py. pytest needs >=3.7,
-  # and the suite is verified on 3.9 (the lower bound) through 3.13.
+  # Must stay in sync with the classifiers in pyproject.toml. The floor is
+  # requires-python = ">=3.9" there; the suite is verified on 3.9 through 3.14.
   - "3.9"
   - "3.11"
   - "3.13"
+  - "3.14"
   - "nightly"
 install:
-  # Build/test dependencies
-  - pip install -r requirements.txt
-  # Get fab to test fab
-  - pip install -e .
+  # Version-pinned installer URL: the unversioned one always serves the latest
+  # release, so a compromised or merely broken upload would run here with CI
+  # credentials.
+  - curl -LsSf https://astral.sh/uv/0.9.18/install.sh | sh
+  - export PATH="$HOME/.local/bin:$PATH"
+  # UV_PYTHON is what makes the matrix mean anything, and it has to be the env
+  # var rather than `uv sync --python`: that flag only applies to the one
+  # command, and the later `uv run` steps re-resolve the interpreter from
+  # .python-version (3.13), delete .venv and rebuild it on 3.13. Every job
+  # would then quietly test the same version. The value is the interpreter
+  # Travis already activated, not $TRAVIS_PYTHON_VERSION, because that variable
+  # holds the raw matrix value and uv cannot resolve "nightly" as either a
+  # version or an executable name.
+  - export UV_PYTHON="$(command -v python)"
+  - uv sync
   # Deal with issue on Travis builders re: multiprocessing.Queue :(
   - "sudo rm -rf /dev/shm && sudo ln -s /run/shm /dev/shm"
-  - "pip install jinja2"
 before_script:
   # Allow us to SSH passwordless to localhost
   - ssh-keygen -f ~/.ssh/id_rsa -N ""
@@ -23,15 +34,15 @@ before_script:
   - ssh-add
 script:
   # Normal tests
-  - fab test
+  - uv run fab test
   # Integration tests
-  - fab -H localhost test:integration
+  - uv run fab -H localhost test:integration
   # Build docs; www first without warnings so its intersphinx objects file
   # generates. Then docs (with warnings->errors), then www again (also w/
   # warnings on.) FUN TIMES WITH CIRCULAR DEPENDENCIES.
-  - invoke www
-  - invoke docs -o -W
-  - invoke www -c -o -W
+  - uv run invoke www
+  - uv run invoke docs -o -W
+  - uv run invoke www -c -o -W
 #notifications:
 #  irc:
 #    channels: "irc.freenode.org#fabric"

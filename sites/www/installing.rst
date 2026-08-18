@@ -104,22 +104,18 @@ Development dependencies
 ------------------------
 
 If you are interested in doing development work on Fabric (or even just running
-the test suite), you may also need to install some or all of the following
-packages:
+the test suite), install the development dependencies with `uv`_::
 
-* `git <http://git-scm.com>`_ and `Mercurial`_, in order to obtain some of the
-  other dependencies below;
-* `pytest <https://docs.pytest.org/>`_
-* `Coverage <http://nedbatchelder.com/code/modules/coverage.html>`_
-* `PyLint <http://www.logilab.org/857>`_
-* `Sphinx <http://sphinx.pocoo.org/>`_
+    uv sync
 
-For an up-to-date list of exact testing/development requirements, including
-version numbers, please see the ``requirements.txt`` file included with the
-source distribution. This file is intended to be used with ``pip``, e.g. ``pip
-install -r requirements.txt``.
+That builds a ``.venv`` containing the project plus the ``test`` group
+(`pytest <https://docs.pytest.org/>`_, `jinja2 <https://jinja.palletsprojects.com/>`_),
+the ``docs`` group (`Sphinx <https://www.sphinx-doc.org/>`_ and friends) and the
+``release`` group (`twine <https://twine.readthedocs.io/>`_). For the exact
+version bounds, see the ``[dependency-groups]`` table in ``pyproject.toml``;
+``uv.lock`` records the resolved versions.
 
-.. _Mercurial: http://mercurial.selenic.com/wiki/
+.. _`uv`: https://docs.astral.sh/uv/
 
 
 .. _downloads:
@@ -152,10 +148,9 @@ downloading official releases, you have the following options:
 .. note::
 
     If you've obtained the Fabric source via source control and plan on
-    updating your checkout in the future, we highly suggest using ``python
-    setup.py develop`` instead -- it will use symbolic links instead of file
-    copies, ensuring that imports of the library or use of the command-line
-    tool will always refer to your checkout.
+    updating your checkout in the future, use ``uv sync`` instead -- it
+    installs the checkout in editable mode, ensuring that imports of the
+    library or use of the command-line tool will always refer to your checkout.
 
 For information on the hows and whys of Fabric development, including which
 branches may be of interest and how you can help out, please see the
