@@ -1,5 +1,6 @@
 from __future__ import with_statement
 
+import os
 import shlex
 import sys
 from unittest import TestCase
@@ -317,3 +318,81 @@ class TestErrorHandling(FabricTest):
             # can't use assert_contains as ANSI codes contain regex
             # specialchars
             eq_(red("\\Error: oh god\n\n"), sys.stderr.getvalue())
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason="POSIX-only ioctl")
+class TestPtySize(TestCase):
+    def _stdout_on(self, fd):
+        stdout = mock.Mock()
+        stdout.isatty.return_value = True
+        stdout.fileno.return_value = fd
+        return stdout
+
+    def test_reads_size_of_the_terminal_on_stdout(self):
+        """
+        _pty_size() should return the real (rows, cols) of stdout's terminal
+        """
+        import fcntl
+        import struct
+        import termios
+
+        # Arrange
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        # A full `struct winsize`: rows, cols, xpixels, ypixels. Handing
+        # TIOCGWINSZ a shorter buffer than this makes the kernel write past
+        # its end, which Python 3.14+ rejects with SystemError.
+        fcntl.ioctl(
+            slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 132, 0, 0)
+        )
+
+        # Act
+        with mock.patch.object(sys, 'stdout', self._stdout_on(slave)):
+            size = utils._pty_size()
+
+        # Assert
+        eq_((40, 132), size)
+
+    def test_asks_the_kernel_for_a_full_winsize_struct(self):
+        """
+        _pty_size() should hand TIOCGWINSZ a buffer as big as `struct winsize`
+        """
+        # Python 3.13 and older silently tolerate an undersized buffer here
+        # (the kernel scribbles into CPython's larger internal one), so the
+        # test above only catches the regression on 3.14+. This one catches it
+        # everywhere.
+        import struct
+
+        # Arrange
+        winsize = struct.pack('HHHH', 40, 132, 0, 0)
+
+        # The real ioctl() hands back exactly as many bytes as it was given.
+        # Mimicking that keeps an undersized buffer failing the assertion
+        # below, instead of blowing up inside _pty_size()'s unpack() first.
+        def fake_ioctl(fd, request, arg):
+            return winsize[:len(arg)]
+
+        # Act
+        with mock.patch('fcntl.ioctl', side_effect=fake_ioctl) as ioctl:
+            stdout = self._stdout_on(mock.sentinel.fd)
+            with mock.patch.object(sys, 'stdout', stdout):
+                utils._pty_size()
+
+        # Assert
+        eq_(struct.calcsize('HHHH'), len(ioctl.call_args[0][2]))
+
+    def test_falls_back_to_defaults_when_stdout_is_not_a_tty(self):
+        """
+        _pty_size() should return 24x80 when stdout is not a terminal
+        """
+        # Arrange
+        stdout = mock.Mock()
+        stdout.isatty.return_value = False
+
+        # Act
+        with mock.patch.object(sys, 'stdout', stdout):
+            size = utils._pty_size()
+
+        # Assert
+        eq_((24, 80), size)

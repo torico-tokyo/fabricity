@@ -296,17 +296,19 @@ def _pty_size():
     default_rows, default_cols = 24, 80
     rows, cols = default_rows, default_cols
     if not win32 and isatty(sys.stdout):
-        # We want two short unsigned integers (rows, cols)
-        fmt = 'HH'
+        # TIOCGWINSZ fills a full `struct winsize`
+        # (rows, cols, xpixels, ypixels); a shorter buffer makes the kernel
+        # write past its end, which Python 3.14+ rejects with SystemError.
+        fmt = 'HHHH'
         # Create an empty (zeroed) buffer for ioctl to map onto. Yay for C!
-        buffer = struct.pack(fmt, 0, 0)
+        buffer = struct.pack(fmt, 0, 0, 0, 0)
         # Call TIOCGWINSZ to get window size of stdout, returns our filled
         # buffer
         try:
             result = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ,
                 buffer)
             # Unpack buffer back into Python data types
-            rows, cols = struct.unpack(fmt, result)
+            rows, cols = struct.unpack(fmt, result)[:2]
             # Fall back to defaults if TIOCGWINSZ returns unreasonable values
             if rows == 0:
                 rows = default_rows
