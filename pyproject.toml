@@ -41,24 +41,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 
-# Not README.rst: that file leads with the upstream Fabric3 deprecation notice,
-# which is not what this package's PyPI page should say.
-[project.readme]
-content-type = "text/x-rst"
-text = """
-Fabric3 is a fork of `Fabric <http://fabfile.org>`_ to provide compatibility
-with Python 3.9+.
-
-The goal is to stay 100% compatible with the original Fabric.  Any new releases
-of Fabric will also be released here.  Please file issues for any differences
-you find. Known differences are `documented on github
-<https://github.com/torico-tokyo/fabricity>`.
-
-To find out what's new in this version of Fabric, please see `the changelog
-<http://fabfile.org/changelog.html>`_ of the original Fabric.
-
-For more information, please see the Fabric website or execute ``fab --help``.
-"""
+readme = "README.rst"
 
 [project.urls]
 Homepage = "https://github.com/torico-tokyo/fabricity"
