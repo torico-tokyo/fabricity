@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fabricity"
+dynamic = ["version"]
+description = "[Fabric3 fork] Fabricity is a simple, Pythonic tool for remote execution and deployment."
+requires-python = ">=3.9"
+license = "BSD-2-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "Jeff Forcier" }]
+maintainers = [{ name = "torico", email = "developer+pypi@torico-tokyo.com" }]
+# The paramiko lower bound is 3.4.1: releases up to 3.4.0 emit a
+# CryptographyDeprecationWarning (TripleDES) on import and will stop working
+# once cryptography 48 drops TripleDES. There is deliberately no upper bound --
+# paramiko 4.0 removed DSS/DSA support along with paramiko.dsskey, which
+# fabric/network.py does not import, and the rest of the API used here is
+# unchanged through 5.0.
+dependencies = ["paramiko>=3.4.1", "six>=1.10.0"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Unix",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Clustering",
+    "Topic :: System :: Software Distribution",
+    "Topic :: System :: Systems Administration",
+]
+
+# Not README.rst: that file leads with the upstream Fabric3 deprecation notice,
+# which is not what this package's PyPI page should say.
+[project.readme]
+content-type = "text/x-rst"
+text = """
+Fabric3 is a fork of `Fabric <http://fabfile.org>`_ to provide compatibility
+with Python 3.9+.
+
+The goal is to stay 100% compatible with the original Fabric.  Any new releases
+of Fabric will also be released here.  Please file issues for any differences
+you find. Known differences are `documented on github
+<https://github.com/torico-tokyo/fabricity>`.
+
+To find out what's new in this version of Fabric, please see `the changelog
+<http://fabfile.org/changelog.html>`_ of the original Fabric.
+
+For more information, please see the Fabric website or execute ``fab --help``.
+"""
+
+[project.urls]
+Homepage = "https://github.com/torico-tokyo/fabricity"
+
+[project.scripts]
+fab = "fabric.main:main"
+
+[dependency-groups]
+dev = [
+    { include-group = "test" },
+    { include-group = "docs" },
+    { include-group = "release" },
+]
+
+# The suite mocks with the standard library's unittest.mock, so there is no
+# mocking library here. jinja2 is exercised by
+# contrib.files.upload_template(use_jinja=True); it must NOT be pinned <3.0,
+# because jinja2 2.x imports markupsafe.soft_unicode (removed in markupsafe
+# 2.1) and its own regexes are rejected by Python 3.11+.
+test = ["pytest>=7.0", "jinja2"]
+
+# Lower bounds only, and each one is the oldest version actually verified to
+# build both sites rather than a guess:
+#   * invoke >= 2.2 -- 2.0.x imports `imp`, removed in Python 3.12; 2.1.0
+#     replaced it, but 2.2.0 is the oldest release verified here.
+#   * invocations >= 4.0.2 -- earlier releases import `pip` without depending
+#     on it, so they fail in a venv built without pip.
+#   * releases >= 2.0 -- the 1.x line asks for `sphinx>=1.3` and predates
+#     Sphinx 4; 2.0 is the first release that requires `sphinx>=4`.
+#   * Sphinx >= 7.0 / alabaster >= 0.7.13 -- oldest pair verified here.
+# Verified on Python 3.13 at both ends of those ranges (Sphinx 7.0.1 + releases
+# 2.0.1 + invoke 2.2.0 + invocations 4.0.2 + alabaster 0.7.13, and Sphinx 9.1.0
+# + releases 2.1.1 + invoke 3.0.3 + invocations 4.0.2 + alabaster 1.0.0).
+# Sphinx 9.1 is the first release requiring Python >= 3.12, so older checkouts
+# resolve to older Sphinx within these bounds -- uv.lock pins 7.4.7 for 3.9,
+# 8.1.3 for 3.10 and 9.0.4 for 3.11. That is intended.
+docs = [
+    "Sphinx>=7.0",
+    "releases>=2.0",
+    "invoke>=2.2",
+    "invocations>=4.0.2",
+    "alabaster>=0.7.13",
+]
+
+# twine is reachable through invocations, but `fab upload` invokes it by name,
+# so depend on it directly rather than on someone else's dependency tree.
+release = ["twine"]
+
+[tool.setuptools]
+packages = ["fabric", "fabric.contrib"]
+
+[tool.setuptools.dynamic]
+version = { attr = "fabric.version.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The suite swaps sys.stdout/sys.stderr itself (tests/mock_streams.py) and runs
+# a real local SSH server, neither of which survives pytest's output capturing.
+addopts = "--capture=no"

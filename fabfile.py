@@ -35,7 +35,7 @@ def test(args=None):
     Specify string argument ``args`` for additional args to ``pytest``, e.g.
     ``fab test:integration`` to run the integration suite instead.
     """
-    # Output capturing is disabled in setup.cfg (the suite replaces
+    # Output capturing is disabled in pyproject.toml (the suite replaces
     # sys.stdout/sys.stderr itself and runs a real local SSH server), so no
     # -s is needed here.
     if args:
@@ -55,5 +55,8 @@ def test(args=None):
 @task
 def upload():
     with lcd(os.path.dirname(__file__)):
-        local('python3 setup.py sdist')
-        local('twine upload dist/*')
+        # uv build adds to dist/ without clearing it, so artifacts left over
+        # from previous releases would be handed to twine and rejected.
+        local('rm -rf dist')
+        local('uv build')
+        local('uv run twine upload dist/*')
