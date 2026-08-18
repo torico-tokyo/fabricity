@@ -36,7 +36,7 @@ Running the tests is just::
 
     uv run pytest
 
-You should **always** run tests on ``master`` (or the release branch you're
+You should **always** run tests on ``main`` (or the release branch you're
 working with) to ensure they're passing before working on your own
 changes/tests.
 
