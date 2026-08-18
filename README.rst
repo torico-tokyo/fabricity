@@ -55,14 +55,12 @@ releases.
 Installation
 ============
 
-::
-
-    pip install fabricity
-
-Fabricity installs the same ``fab`` command as Fabric, so uninstall any other
-Fabric distribution first::
+Fabricity installs the same ``fabric`` package and ``fab`` command as Fabric, so
+any other Fabric distribution has to go first — uninstalling one afterwards
+deletes the files Fabricity has since taken over::
 
     pip uninstall Fabric Fabric3
+    pip install fabricity
 
 Requires Python 3.9 or later.
 
